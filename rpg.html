@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dungeon of Shadows</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            background: #000;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: 'Press Start 2P', monospace;
+            overflow: hidden;
+        }
+        #gameContainer {
+            position: relative;
+            width: 800px;
+        }
+        canvas {
+            border: 4px solid #444;
+            image-rendering: pixelated;
+            background: #000;
+        }
+        #ui {
+            display: flex;
+            justify-content: space-between;
+            background: #1a1a2e;
+            color: #0f0;
+            padding: 10px;
+            border: 4px solid #444;
+            border-top: none;
+            font-size: 12px;
+        }
+        .stat { display: flex; gap: 5px; }
+        .stat-label { color: #888; }
+        #message {
+            position: absolute;
+            bottom: 70px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.9);
+            color: #ff0;
+            padding: 10px 20px;
+            border: 2px solid #ff0;
+            font-size: 10px;
+            display: none;
+            text-align: center;
+            max-width: 600px;
+        }
+        #inventory {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.9);
+            color: #0f0;
+            padding: 10px;
+            border: 2px solid #0f0;
+            font-size: 8px;
+            display: none;
+        }
+        #inventory h3 { margin-bottom: 5px; color: #ff0; }
+    </style>
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="game" width="640" height="360"></canvas>
+        <div id="ui">
+            <div class="stat"><span class="stat-label">HP:</span><span id="hp">50/50</span></div>
+            <div class="stat"><span class="stat-label">LVL:</span><span id="lvl">1</span></div>
+            <div class="stat"><span class="stat-label">XP:</span><span id="xp">0</span></div>
+            <div class="stat"><span class="stat-label">GOLD:</span><span id="gold">0</span></div>
+            <div class="stat"><span class="stat-label">FLOOR:</span><span id="floor">1</span></div>
+        </div>
+        <div id="message"></div>
+        <div id="inventory">
+            <h3>INVENTORY</h3>
+            <div id="invList"></div>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('game');
+        const ctx = canvas.getContext('2d');
+        
+        const MAP_SIZE = 16;
+        const TILE_SIZE = 64;
+        
+        const COLORS = {
+            floor: '#1a1a2e',
+            wall: '#2d2d44',
+            wallDark: '#1f1f2f',
+            door: '#4a3728',
+            enemy: '#ff4444',
+            enemyDark: '#aa2222',
+            chest: '#ffd700',
+            stairs: '#44ff44',
+            water: '#2244aa'
+        };
+        
+        let player = {
+            x: 2, y: 2,
+            dir: 0,
+            hp: 50, maxHp: 50,
+            lvl: 1, xp: 0, xpTo: 100,
+            gold: 0,
+            floor: 1,
+            inventory: [],
+            attack: 5,
+            defense: 2
+        };
+        
+        let map = [];
+        let entities = [];
+        let messageTimer = null;
+        let showInventory = false;
+        
+        const keys = {};
+        
+        document.addEventListener('keydown', e => {
+            keys[e.code] = true;
+            if (e.code === 'KeyI') toggleInventory();
+            if (e.code === 'KeyE' && canMoveForward()) moveForward();
+            if (e.code === 'KeyQ' && canTurnRight()) turnRight();
+            if (e.code === 'KeyW' && canTurnLeft()) turnLeft();
+            if (e.code === 'Space') interact();
+        });
+        
+        document.addEventListener('keyup', e => keys[e.code] = false);
+        
+        function generateMap() {
+            map = [];
+            entities = [];
+            
+            for (let y = 0; y < MAP_SIZE; y++) {
+                map[y] = [];
+                for (let x = 0; x < MAP_SIZE; x++) {
+                    if (x === 0 || x === MAP_SIZE - 1 || y === 0 || y === MAP_SIZE - 1) {
+                        map[y][x] = 1;
+                    } else if (Math.random() < 0.15) {
+                        map[y][x] = 1;
+                    } else {
+                        map[y][x] = 0;
+                    }
+                }
+            }
+            
+            player.x = 2;
+            player.y = 2;
+            map[player.y][player.x] = 0;
+            
+            for (let i = 0; i < 5 + player.floor * 2; i++) {
+                let ex, ey;
+                do {
+                    ex = Math.floor(Math.random() * (MAP_SIZE - 2)) + 1;
+                    ey = Math.floor(Math.random() * (MAP_SIZE - 2)) + 1;
+                } while (map[ey][ex] !== 0 || (ex === player.x && ey === player.y));
+                
+                const type = Math.random();
+                if (type < 0.1) {
+                    entities.push({ x: ex, y: ey, type: 'chest', gold: 10 + player.floor * 5, opened: false });
+                } else if (type < 0.2) {
+                    entities.push({ x: ex, y: ey, type: 'potion', opened: false });
+                } else {
+                    const hp = 10 + player.floor * 5;
+                    entities.push({ 
+                        x: ex, y: ey, type: 'enemy', 
+                        hp: hp, maxHp: hp, 
+                        name: ['Goblin', 'Skeleton', 'Orc', 'Dark Elf', 'Demon'][Math.min(player.floor - 1, 4)],
+                        attack: 3 + player.floor,
+                        xp: 20 + player.floor * 10,
+                        gold: 5 + player.floor * 2
+                    });
+                }
+            }
+            
+            let sx, sy;
+            do {
+                sx = Math.floor(Math.random() * (MAP_SIZE - 2)) + 1;
+                sy = Math.floor(Math.random() * (MAP_SIZE - 2)) + 1;
+            } while (map[sy][sx] !== 0 || (sx === player.x && sy === player.y));
+            entities.push({ x: sx, y: sy, type: 'stairs' });
+        }
+        
+        function draw() {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            const FOV = Math.PI / 3;
+            const NUM_RAYS = 120;
+            
+            for (let i = 0; i < NUM_RAYS; i++) {
+                const rayAngle = (player.dir - FOV / 2) + (i / NUM_RAYS) * FOV;
+                const dist = castRay(rayAngle);
+                const wallHeight = (TILE_SIZE * canvas.height) / dist;
+                const wallTop = (canvas.height - wallHeight) / 2;
+                
+                const shade = Math.max(0, 1 - dist / 12);
+                const r = Math.floor(45 * shade + 20 * (1 - shade));
+                const g = Math.floor(45 * shade + 20 * (1 - shade));
+                const b = Math.floor(68 * shade + 40 * (1 - shade));
+                
+                ctx.fillStyle = `rgb(${r},${g},${b})`;
+                ctx.fillRect((i / NUM_RAYS) * canvas.width, wallTop, canvas.width / NUM_RAYS + 1, wallHeight);
+            }
+            
+            drawFloor();
+            drawEntities();
+            drawUI();
+        }
+        
+        function castRay(angle) {
+            let x = player.x, y = player.y;
+            const dx = Math.cos(angle) * 0.05;
+            const dy = Math.sin(angle) * 0.05;
+            
+            for (let i = 0; i < 20; i += 0.05) {
+                x += dx;
+                y += dy;
+                const mapX = Math.floor(x);
+                const mapY = Math.floor(y);
+                if (mapX < 0 || mapX >= MAP_SIZE || mapY < 0 || mapY >= MAP_SIZE) return i;
+                if (map[mapY][mapX] === 1) return i;
+            }
+            return 20;
+        }
+        
+        function drawFloor() {
+            const gradient = ctx.createLinearGradient(0, canvas.height/2, 0, canvas.height);
+            gradient.addColorStop(0, '#0a0a14');
+            gradient.addColorStop(1, '#1a1a2e');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, canvas.height/2, canvas.width, canvas.height/2);
+        }
+        
+        function drawEntities() {
+            const visible = [];
+            
+            for (const e of entities) {
+                const dx = e.x - player.x;
+                const dy = e.y - player.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                if (dist < 0.5) continue;
+                
+                let angle = Math.atan2(dy, dx) - player.dir;
+                while (angle < -Math.PI) angle += Math.PI * 2;
+                while (angle > Math.PI) angle -= Math.PI * 2;
+                
+                if (Math.abs(angle) < Math.PI / 3 && dist < 10) {
+                    visible.push({ e, dist, angle });
+                }
+            }
+            
+            visible.sort((a, b) => b.dist - a.dist);
+            
+            for (const { e, dist, angle } of visible) {
+                const screenX = canvas.width / 2 + (angle / (Math.PI / 3)) * (canvas.width / 2);
+                const size = (TILE_SIZE * canvas.height) / (dist * TILE_SIZE * 2);
+                const y = canvas.height / 2;
+                
+                ctx.fillStyle = getEntityColor(e);
+                const shade = Math.max(0.3, 1 - dist / 8);
+                ctx.globalAlpha = shade;
+                ctx.fillRect(screenX - size/2, y - size/2, size, size);
+                ctx.globalAlpha = 1;
+                
+                if (e.type === 'enemy') {
+                    ctx.fillStyle = '#fff';
+                    ctx.font = `${Math.max(8, size/4)}px monospace`;
+                    ctx.textAlign = 'center';
+                    ctx.fillText(`Lv${Math.ceil(e.hp/10)}`, screenX, y - size/2 - 5);
+                }
+            }
+        }
+        
+        function getEntityColor(e) {
+            switch(e.type) {
+                case 'enemy': return COLORS.enemy;
+                case 'chest': return e.opened ? '#666' : COLORS.chest;
+                case 'potion': return '#ff00ff';
+                case 'stairs': return COLORS.stairs;
+                default: return '#fff';
+            }
+        }
+        
+        function drawUI() {
+            ctx.fillStyle = '#0f0';
+            ctx.font = '10px monospace';
+            ctx.textAlign = 'left';
+            
+            const controls = [
+                'W/Q - Turn | E - Forward | SPACE - Action | I - Inventory'
+            ];
+            controls.forEach((text, i) => {
+                ctx.fillText(text, 10, 20 + i * 15);
+            });
+        }
+        
+        function canMoveForward() {
+            const dx = Math.cos(player.dir);
+            const dy = Math.sin(player.dir);
+            const nx = Math.floor(player.x + dx);
+            const ny = Math.floor(player.y + dy);
+            return map[ny] && map[ny][nx] === 0;
+        }
+        
+        function canTurnRight() { return true; }
+        function canTurnLeft() { return true; }
+        
+        function moveForward() {
+            const dx = Math.cos(player.dir);
+            const dy = Math.sin(player.dir);
+            player.x += dx;
+            player.y += dy;
+            checkEntity();
+            draw();
+        }
+        
+        function turnRight() { player.dir += Math.PI / 8; draw(); }
+        function turnLeft() { player.dir -= Math.PI / 8; draw(); }
+        
+        function interact() {
+            const dx = Math.cos(player.dir);
+            const dy = Math.sin(player.dir);
+            const ix = Math.floor(player.x + dx);
+            const iy = Math.floor(player.y + dy);
+            
+            const entity = entities.find(e => e.x === ix && e.y === iy);
+            if (!entity) return;
+            
+            if (entity.type === 'enemy') {
+                combat(entity);
+            } else if (entity.type === 'chest') {
+                if (!entity.opened) {
+                    entity.opened = true;
+                    player.gold += entity.gold;
+                    showMessage(`Found ${entity.gold} gold!`);
+                    updateUI();
+                }
+            } else if (entity.type === 'potion') {
+                const heal = 20;
+                player.hp = Math.min(player.maxHp, player.hp + heal);
+                entities = entities.filter(e => e !== entity);
+                showMessage(`Healed ${heal} HP!`);
+                updateUI();
+            } else if (entity.type === 'stairs') {
+                player.floor++;
+                generateMap();
+                showMessage(`Entered floor ${player.floor}`);
+                updateUI();
+            }
+            draw();
+        }
+        
+        function combat(enemy) {
+            const dmg = Math.max(1, player.attack + Math.floor(Math.random() * 5) - 2);
+            enemy.hp -= dmg;
+            showMessage(`You hit ${enemy.name} for ${dmg} damage!`);
+            
+            if (enemy.hp <= 0) {
+                player.xp += enemy.xp;
+                player.gold += enemy.gold;
+                showMessage(`${enemy.name} defeated! +${enemy.xp}XP, +${enemy.gold}G`);
+                entities = entities.filter(e => e !== enemy);
+                
+                if (player.xp >= player.xpTo) {
+                    player.lvl++;
+                    player.xp -= player.xpTo;
+                    player.xpTo = Math.floor(player.xpTo * 1.5);
+                    player.maxHp += 10;
+                    player.hp = player.maxHp;
+                    player.attack += 2;
+                    player.defense += 1;
+                    showMessage(`LEVEL UP! Now level ${player.lvl}!`);
+                }
+                updateUI();
+            } else {
+                const edmg = Math.max(1, enemy.attack - player.defense + Math.floor(Math.random() * 3));
+                player.hp -= edmg;
+                showMessage(`${enemy.name} hits you for ${edmg} damage!`);
+                
+                if (player.hp <= 0) {
+                    showMessage('GAME OVER! Refresh to restart.');
+                    player.hp = 0;
+                }
+                updateUI();
+            }
+        }
+        
+        function checkEntity() {
+            const entity = entities.find(e => Math.floor(e.x) === Math.floor(player.x) && Math.floor(e.y) === Math.floor(player.y));
+            if (entity && entity.type === 'enemy') {
+                showMessage(`A ${enemy.name} blocks your path! Press SPACE to attack.`);
+            }
+        }
+        
+        function showMessage(text) {
+            const msg = document.getElementById('message');
+            msg.textContent = text;
+            msg.style.display = 'block';
+            if (messageTimer) clearTimeout(messageTimer);
+            messageTimer = setTimeout(() => msg.style.display = 'none', 3000);
+        }
+        
+        function toggleInventory() {
+            showInventory = !showInventory;
+            document.getElementById('inventory').style.display = showInventory ? 'block' : 'none';
+            if (showInventory) updateInventoryUI();
+        }
+        
+        function updateInventoryUI() {
+            document.getElementById('invList').innerHTML = player.inventory.length ? 
+                player.inventory.join('<br>') : 'Empty';
+        }
+        
+        function updateUI() {
+            document.getElementById('hp').textContent = `${player.hp}/${player.maxHp}`;
+            document.getElementById('lvl').textContent = player.lvl;
+            document.getElementById('xp').textContent = `${player.xp}/${player.xpTo}`;
+            document.getElementById('gold').textContent = player.gold;
+            document.getElementById('floor').textContent = player.floor;
+        }
+        
+        function gameLoop() {
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+        
+        generateMap();
+        updateUI();
+        showMessage('Find the stairs (green) to descend. Watch for enemies (red)!');
+        gameLoop();
+    </script>
+</body>
+</html>
