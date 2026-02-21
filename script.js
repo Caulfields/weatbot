@@ -2,7 +2,9 @@ document.addEventListener('DOMContentLoaded', function() {
     let currentStation = 'EGLC';
     let currentLocation = 'london';
     let currentTimezone = 'Europe/London';
-    const copyAllBtn = document.getElementById('copyAllBtn');
+    let currentMetarRaw = '';
+    let currentTafRaw = '';
+    const copyPromptBtn = document.getElementById('copyPromptBtn');
     const toast = document.getElementById('toast');
     
     const savedTheme = localStorage.getItem('theme') || 'light';
@@ -53,10 +55,10 @@ document.addEventListener('DOMContentLoaded', function() {
     function updateTime() {
         const now = new Date();
         const localTime = new Date(now.toLocaleString('en-US', { timeZone: currentTimezone }));
-        document.getElementById('londonTime').textContent = 
-            String(localTime.getHours()).padStart(2, '0') + ':' +
+        const timeStr = String(localTime.getHours()).padStart(2, '0') + ':' +
             String(localTime.getMinutes()).padStart(2, '0') + ':' +
             String(localTime.getSeconds()).padStart(2, '0');
+        document.getElementById('londonTime').textContent = timeStr;
     }
     updateTime();
     setInterval(updateTime, 1000);
@@ -81,6 +83,9 @@ document.addEventListener('DOMContentLoaded', function() {
             document.querySelectorAll('.station-badge, .station-name').forEach(el => {
                 el.textContent = currentStation;
             });
+            
+            // Update METAR display for new location
+            updateMetarForDisplay(currentStation, locations[loc].name);
             
             // Update METAR tab main station
             const mainStationNameEl = document.getElementById('mainStationName');
@@ -108,6 +113,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // Tab Switching
     const windowsRow = document.querySelector('.windows-row');
     const mainContent = document.querySelector('.main-content');
+    const promptContainer = document.querySelector('.prompt-container');
     
     function switchTab(tabId) {
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
@@ -119,13 +125,15 @@ document.addEventListener('DOMContentLoaded', function() {
             tabContent.classList.add('active');
         }
         
-        // Show windows-row only on Dashboard tab, show main-content on others
+        // Show windows-row and prompt only on Dashboard tab, show main-content on others
         if (tabId === 'dashboard') {
             windowsRow.style.display = 'grid';
-            mainContent.style.display = 'none';
+            if (promptContainer) promptContainer.style.display = 'block';
+            mainContent.classList.add('dashboard-active');
         } else {
             windowsRow.style.display = 'none';
-            mainContent.style.display = 'block';
+            if (promptContainer) promptContainer.style.display = 'none';
+            mainContent.classList.remove('dashboard-active');
         }
         
         // Redraw trend chart when trend tab becomes visible
@@ -148,6 +156,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Initialize - start with Dashboard
     switchTab('dashboard');
+    
+    // Initialize METAR display
+    updateMetarForDisplay(currentStation, locations[currentLocation].name);
 
     // Toast
     function showToast(msg) {
@@ -236,6 +247,545 @@ document.addEventListener('DOMContentLoaded', function() {
         if (value >= 100) return Math.round(value) + ' hPa';
         return value.toFixed(2) + ' inHg';
     }
+    
+    // Parse METAR data from raw string
+    function parseMetarFromRaw(metarStr) {
+        const result = {
+            temp: null,
+            dewpt: null,
+            vis: null,
+            time: null,
+            clouds: [],
+            hasNCD: false
+        };
+        
+        if (!metarStr) return result;
+        
+        // Parse time (format: DDHHMMZ)
+        const timeMatch = metarStr.match(/\b(\d{2})(\d{2})(\d{2})Z\b/);
+        if (timeMatch) {
+            result.time = {
+                day: timeMatch[1],
+                hour: timeMatch[2],
+                minute: timeMatch[3]
+            };
+        }
+        
+        // Parse temperature/dewpoint (format: XX/YY or MXX/MYY for negative)
+        const tempMatch = metarStr.match(/\b(M?\d{2})\/(M?\d{2})\b/);
+        if (tempMatch) {
+            const parseTemp = (t) => {
+                if (t.startsWith('M')) return -parseInt(t.substring(1));
+                return parseInt(t);
+            };
+            result.temp = parseTemp(tempMatch[1]);
+            result.dewpt = parseTemp(tempMatch[2]);
+        }
+        
+        // Parse visibility (9999 = 10+ km, or XXXX meters, or X SM)
+        // Look for visibility after wind but before temperature/pressure
+        const parts = metarStr.split(' ');
+        for (let i = 0; i < parts.length; i++) {
+            const part = parts[i];
+            // Match 9999 or 4-digit visibility meters (but not QNH which starts with Q)
+            if (/^(9999|\d{4})$/.test(part) && part !== 'AUTO' && part !== 'COR') {
+                const vis = parseInt(part);
+                if (vis === 9999) {
+                    result.vis = '6+';
+                    result.visKm = '10+';
+                    break;
+                } else if (vis >= 1000) {
+                    const miles = vis / 1609.34;
+                    result.vis = miles.toFixed(0);
+                    result.visKm = Math.round(vis / 1000);
+                    break;
+                }
+            }
+            // Match X SM (statute miles)
+            const smMatch = part.match(/^(\d+)(\d\/\d)?SM$/);
+            if (smMatch) {
+                let miles = parseInt(smMatch[1]);
+                if (smMatch[2]) {
+                    const frac = smMatch[2].split('/');
+                    miles += parseInt(frac[0]) / parseInt(frac[1]);
+                }
+                result.vis = miles;
+                result.visKm = Math.round(miles * 1.60934);
+                break;
+            }
+        }
+        
+        // Parse clouds
+        const cloudMatches = metarStr.match(/\b(FEW|SCT|BKN|OVC|SKC|CLR|NSC|NCD)(\d{3})?\b/g);
+        if (cloudMatches) {
+            cloudMatches.forEach(match => {
+                const cover = match.substring(0, 3);
+                const baseCode = match.substring(3, 6);
+                if (cover === 'NCD') {
+                    result.hasNCD = true;
+                } else {
+                    result.clouds.push({
+                        cover: cover,
+                        base: baseCode ? parseInt(baseCode) : null
+                    });
+                }
+            });
+        }
+        
+        return result;
+    }
+    
+    // METAR Display Helper Functions
+    function formatMetarConditionsTime(reportTime, metarTime) {
+        // Use METAR time if available, otherwise reportTime
+        let date;
+        if (metarTime) {
+            const now = new Date();
+            date = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), parseInt(metarTime.day), 
+                                     parseInt(metarTime.hour), parseInt(metarTime.minute)));
+        } else {
+            date = new Date(reportTime);
+        }
+        const day = String(date.getUTCDate()).padStart(2, '0');
+        const hours = String(date.getUTCHours()).padStart(2, '0');
+        const minutes = String(date.getUTCMinutes()).padStart(2, '0');
+        const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+        const month = months[date.getUTCMonth()];
+        const year = date.getUTCFullYear();
+        return `${hours}${minutes} UTC ${day} ${date.toLocaleDateString('en-US', { weekday: 'short' })} ${month} ${year}`;
+    }
+    
+    function celsiusToFahrenheit(c) {
+        if (c === null || c === undefined) return null;
+        return Math.round((c * 9/5) + 32);
+    }
+    
+    function formatTemperature(temp) {
+        if (temp === null || temp === undefined) return '--°C (--°F)';
+        const f = celsiusToFahrenheit(temp);
+        return `${temp}°C (${f}°F)`;
+    }
+    
+    function calculateRH(temp, dewpt) {
+        if (temp === null || dewpt === null || temp === undefined || dewpt === undefined) return null;
+        // Simplified RH calculation using Magnus formula
+        const a = 17.625;
+        const b = 243.04;
+        const alpha = ((a * dewpt) / (b + dewpt)) - ((a * temp) / (b + temp));
+        const rh = 100 * Math.exp(alpha);
+        return Math.round(rh);
+    }
+    
+    function formatDewpoint(dwpt, temp) {
+        if (dwpt === null || dwpt === undefined) return '--°C (--°F) (RH = --%)';
+        const f = celsiusToFahrenheit(dwpt);
+        const rh = calculateRH(temp, dwpt);
+        return `${dwpt}°C (${f}°F) (RH = ${rh ?? '--'}%)`;
+    }
+    
+    function formatPressure(altim) {
+        const value = Number(altim);
+        if (!Number.isFinite(value)) return '-- inHg (-- hPa)';
+        if (value >= 100) {
+            return `${(value / 33.8639).toFixed(2)} inHg (${Math.round(value)} hPa)`;
+        }
+        return `${value.toFixed(2)} inHg (${Math.round(value * 33.8639)} hPa)`;
+    }
+    
+    function formatWindsDetailed(m) {
+        if (!m.wdir && !m.wspd) return '--';
+        const dir = m.wdir ?? 'VAR';
+        const compass = dir === 'VAR' ? 'variable' : degreesToCompass(dir);
+        const speed = m.wspd ?? '--';
+        const speedMs = speed !== '--' ? (speed * 0.514444).toFixed(1) : '--';
+        const speedMph = speed !== '--' ? (speed * 1.15078).toFixed(1) : '--';
+        if (m.wgst) {
+            return `from the ${compass} (${dir}°) at ${speed} kt (${speedMs} m/s, ${speedMph} mph), gusts ${m.wgst} kt`;
+        }
+        return `from the ${compass} (${dir}°) at ${speed} kt (${speedMs} m/s, ${speedMph} mph)`;
+    }
+    
+    function formatVisibilityDetailed(m) {
+        // Parse from raw METAR first
+        const raw = m.rawOb || m.rawTAF || '';
+        const parsed = parseMetarFromRaw(raw);
+        
+        if (parsed.vis) {
+            if (parsed.visKm === '10+') {
+                return `6+ mi (10+ km)`;
+            }
+            return `${parsed.vis} mi (${parsed.visKm} km)`;
+        }
+        
+        // Fallback to API data
+        const vis = m.visib ?? m.vis;
+        if (!vis || isNaN(vis)) return '--';
+        // Convert statute miles to km (1 SM = 1.60934 km)
+        const km = Math.round(vis * 1.60934);
+        if (vis >= 6) {
+            return `${vis}+ mi (${km}+ km)`;
+        }
+        return `${vis} mi (${km} km)`;
+    }
+    
+    function formatCloudsDetailed(m) {
+        const raw = m.rawOb || m.rawTAF || '';
+        const parsed = parseMetarFromRaw(raw);
+        
+        // Check for NCD (No Cloud Detected)
+        if (parsed.hasNCD) {
+            return 'no clouds detected';
+        }
+        
+        // Use parsed clouds from raw METAR
+        if (parsed.clouds && parsed.clouds.length > 0) {
+            return parsed.clouds.map(c => {
+                const coverName = getCloudCoverName(c.cover) || c.cover;
+                if (c.base) {
+                    const baseFeet = c.base * 100;
+                    return `${coverName} clouds at ${baseFeet.toLocaleString('en-US')} ft`;
+                }
+                return coverName;
+            }).join(', ');
+        }
+        
+        return 'clear skies';
+    }
+    
+    function updateMetarForDisplay(station, locationName) {
+        const stationNames = {
+            'EGLC': 'London City Arpt, EN, GB',
+            'LFPG': 'Paris Charles de Gaulle, FR'
+        };
+        const fullName = stationNames[station] || locationName;
+        safeText('metarFor', `${station} (${fullName})`);
+    }
+    
+    const cloudCoverNames = {
+        'CLR': 'clear',
+        'SKC': 'sky clear',
+        'NSC': 'no significant clouds',
+        'NCD': 'no clouds detected',
+        'FEW': 'few',
+        'SCT': 'scattered',
+        'BKN': 'broken',
+        'OVC': 'overcast',
+        'VV': 'vertical visibility'
+    };
+    
+    function getCloudCoverName(code) {
+        return cloudCoverNames[code] || (code ? code.toLowerCase() : '');
+    }
+    
+    function degreesToCompass(deg) {
+        const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+        if (deg === null || deg === undefined || deg === 'VAR') return 'VAR';
+        const d = Math.round(deg / 22.5) % 16;
+        return directions[d];
+    }
+    
+    function updateDecodedMetar(m) {
+        const stationId = m.stationId || currentStation;
+        const stationNames = {
+            'EGLC': 'London City Arpt, EN, GB',
+            'LFPG': 'Paris Charles de Gaulle, FR',
+            'EGTE': 'Exeter, GB',
+            'EGFF': 'Cardiff, GB'
+        };
+        
+        const stationName = stationNames[stationId] || stationId;
+        
+        safeText('decMetarStation', stationId + ' (' + stationName + ')');
+        safeText('decMetarText', m.rawOb || '--');
+        
+        const reportTime = m.reportTime ? new Date(m.reportTime) : null;
+        let timeStr = '--';
+        if (reportTime) {
+            const day = reportTime.getUTCDate();
+            const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+            const dayName = days[reportTime.getUTCDay()];
+            const monthName = months[reportTime.getUTCMonth()];
+            const year = reportTime.getUTCFullYear();
+            const hours = String(reportTime.getUTCHours()).padStart(2, '0');
+            const mins = String(reportTime.getUTCMinutes()).padStart(2, '0');
+            timeStr = hours + mins + ' UTC ' + day + ' ' + dayName + ' ' + monthName + ' ' + year;
+        }
+        safeText('decMetarTime', timeStr);
+        
+        const temp = m.temp ?? m.temperature ?? null;
+        const dwpt = m.dwpt ?? m.dewpt ?? m.dewpoint ?? null;
+        let tempStr = '--';
+        if (temp !== null && temp !== undefined) {
+            const tempF = (temp * 9/5) + 32;
+            tempStr = temp.toFixed(0) + '°C (' + tempF.toFixed(0) + '°F)';
+        }
+        safeText('decMetarTemp', tempStr);
+        
+        let dewpStr = '--';
+        if (dwpt !== null && dwpt !== undefined) {
+            const dwptF = (dwpt * 9/5) + 32;
+            let rhStr = '';
+            if (temp !== null && temp !== undefined && dwpt !== null && dwpt !== undefined) {
+                const rh = calculateRH(temp, dwpt);
+                rhStr = ' (RH = ' + rh + '%)';
+            }
+            dewpStr = dwpt.toFixed(0) + '°C (' + dwptF.toFixed(0) + '°F)' + rhStr;
+        }
+        safeText('decMetarDewp', dewpStr);
+        
+        const altim = m.altim;
+        let altimStr = '--';
+        if (altim !== null && altim !== undefined) {
+            const val = Number(altim);
+            if (val >= 100) {
+                altimStr = (val / 100).toFixed(2) + ' inHg (' + Math.round(val) + ' hPa)';
+            } else {
+                altimStr = val.toFixed(2) + ' inHg (' + Math.round(val * 33.8639) + ' hPa)';
+            }
+        }
+        safeText('decMetarAltim', altimStr);
+        
+        const wdir = m.wdir;
+        const wspd = m.wspd;
+        const wgst = m.wgst;
+        let windStr = '--';
+        if (wspd !== null && wspd !== undefined) {
+            const compass = degreesToCompass(wdir);
+            let dirStr = wdir !== null && wdir !== undefined ? wdir + '°' : 'VAR';
+            const speedKt = wspd;
+            const speedMs = (wspd * 0.514444).toFixed(1);
+            const speedMph = (wspd * 1.15078).toFixed(1);
+            windStr = 'from the ' + compass + ' (' + dirStr + ') at ' + speedKt + ' kt (' + speedMs + ' m/s, ' + speedMph + ' mph)';
+            if (wgst) {
+                windStr += ' G' + wgst + 'kt';
+            }
+        }
+        safeText('decMetarWind', windStr);
+        
+        const vis = m.visib ?? m.vis;
+        let visStr = '--';
+        if (vis !== null && vis !== undefined) {
+            if (vis >= 10) {
+                visStr = '6+ mi (10+ km)';
+            } else {
+                const visKm = (vis * 1.60934).toFixed(1);
+                visStr = vis + ' mi (' + visKm + ' km)';
+            }
+        }
+        safeText('decMetarVis', visStr);
+        
+        let cloudsStr = '--';
+        let ceilingStr = '--';
+        if (m.clouds && m.clouds.length > 0) {
+            const cloudParts = [];
+            let lowestCeiling = null;
+            m.clouds.forEach(c => {
+                const cover = c.cover || 'CLR';
+                if (c.base !== null && c.base !== undefined) {
+                    const baseFt = c.base * 100;  // METAR cloud base is in hundreds of feet
+                    cloudParts.push(cover.toLowerCase() + ' clouds at ' + baseFt.toLocaleString() + ' ft');
+                    if (cover !== 'CLR' && cover !== 'SKC' && cover !== 'NSC') {
+                        if (lowestCeiling === null || baseFt < lowestCeiling) {
+                            lowestCeiling = baseFt;
+                        }
+                    }
+                } else {
+                    if (cover === 'CLR' || cover === 'SKC' || cover === 'NSC') {
+                        cloudParts.push('clear');
+                    } else {
+                        cloudParts.push(cover.toLowerCase());
+                    }
+                }
+            });
+            cloudsStr = cloudParts.join(', ');
+            if (lowestCeiling !== null) {
+                ceilingStr = lowestCeiling.toLocaleString() + ' ft';
+            }
+        }
+        safeText('decMetarClouds', cloudsStr);
+        safeText('decMetarCeiling', ceilingStr || 'unlimited');
+    }
+    
+    function calculateRH(temp, dewpoint) {
+        const a = 17.27;
+        const b = 237.7;
+        const alpha = ((a * temp) / (b + temp)) + Math.log(5);
+        const rh = Math.exp(((a * dewpoint) / (b + dewpoint)) - Math.log(5));
+        return Math.round(rh * 100);
+    }
+    
+    function updateDecodedTaf(t) {
+        const stationId = t.stationId || currentStation;
+        const stationNames = {
+            'EGLC': 'London City Arpt',
+            'LFPG': 'Paris Charles de Gaulle',
+            'EGTE': 'Exeter',
+            'EGFF': 'Cardiff'
+        };
+        
+        const stationName = stationNames[stationId] || stationId;
+        
+        safeText('decTafStation', stationName);
+        safeText('decTafText', t.rawTAF || '--');
+        
+        const raw = t.rawTAF || '';
+        
+        let periodStr = '--';
+        let typeStr = 'standard forecast or significant change';
+        let firstFc = null;
+        
+        if (t.forecasts && t.forecasts.length > 0) {
+            firstFc = t.forecasts[0];
+            
+            if (firstFc.from && firstFc.to) {
+                const fromDate = new Date(firstFc.from);
+                const toDate = new Date(firstFc.to);
+                
+                const formatTafTime = (d) => {
+                    const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                    const day = d.getUTCDate();
+                    const dayName = days[d.getUTCDay()];
+                    const monthName = months[d.getUTCMonth()];
+                    const year = d.getUTCFullYear();
+                    const hours = String(d.getUTCHours()).padStart(2, '0');
+                    const mins = String(d.getUTCMinutes()).padStart(2, '0');
+                    return hours + mins + ' UTC ' + day + ' ' + dayName + ' ' + monthName + ' ' + year;
+                };
+                
+                periodStr = formatTafTime(fromDate) + ' to ' + formatTafTime(toDate);
+            }
+            
+            const changeIndicator = firstFc.changeIndicator;
+            if (changeIndicator === 'PROB') {
+                typeStr = 'PROB: probability forecast';
+            } else if (changeIndicator === 'TEMPO') {
+                typeStr = 'TEMPO: expected for less than half the time period';
+            } else if (changeIndicator === 'BECMG') {
+                typeStr = 'BECMG: becoming';
+            } else if (changeIndicator === 'FM') {
+                typeStr = 'FM: from';
+            } else {
+                typeStr = 'standard forecast or significant change';
+            }
+        }
+        
+        safeText('decTafPeriod', periodStr);
+        safeText('decTafType', typeStr);
+        
+        let windStr = '--';
+        if (firstFc) {
+            const wdir = firstFc.wdir;
+            const wspd = firstFc.wspd;
+            if (wspd !== null && wspd !== undefined) {
+                const compass = degreesToCompass(wdir);
+                let dirStr = wdir !== null && wdir !== undefined ? wdir + '°' : 'VAR';
+                const speedKt = wspd;
+                const speedMs = (wspd * 0.514444).toFixed(1);
+                const speedMph = (wspd * 1.15078).toFixed(1);
+                windStr = 'from the ' + compass + ' (' + dirStr + ') at ' + speedKt + ' kt (' + speedMs + ' m/s, ' + speedMph + ' mph)';
+            }
+        }
+        safeText('decTafWind', windStr);
+        
+        let visStr = '--';
+        if (firstFc) {
+            const vis = firstFc.visib ?? firstFc.vis;
+            if (vis !== null && vis !== undefined) {
+                if (vis >= 10) {
+                    visStr = '6+ mi (10+ km)';
+                } else {
+                    const visKm = (vis * 1.60934).toFixed(1);
+                    visStr = vis + ' mi (' + visKm + ' km)';
+                }
+            }
+        }
+        safeText('decTafVis', visStr);
+        
+        let cloudsStr = '--';
+        if (firstFc && firstFc.clouds && firstFc.clouds.length > 0) {
+            const cloudParts = [];
+            firstFc.clouds.forEach(c => {
+                const cover = c.cover || 'CLR';
+                if (c.base !== null && c.base !== undefined) {
+                    const baseFt = c.base * 100;  // METAR cloud base is in hundreds of feet
+                    cloudParts.push(cover.toLowerCase() + ' clouds at ' + baseFt.toLocaleString() + ' ft');
+                } else {
+                    if (cover === 'CLR' || cover === 'SKC' || cover === 'NSC') {
+                        cloudParts.push('clear');
+                    } else {
+                        cloudParts.push(cover.toLowerCase());
+                    }
+                }
+            });
+            cloudsStr = cloudParts.join(', ');
+        }
+        safeText('decTafClouds', cloudsStr);
+        
+        const additionalContainer = document.getElementById('decTafAdditional');
+        additionalContainer.innerHTML = '';
+        
+        if (t.forecasts && t.forecasts.length > 1) {
+            for (let i = 1; i < t.forecasts.length; i++) {
+                const fc = t.forecasts[i];
+                const changeIndicator = fc.changeIndicator;
+                
+                if (changeIndicator === 'PROB' || changeIndicator === 'TEMPO') {
+                    const div = document.createElement('div');
+                    div.className = 'decoded-taf-additional';
+                    
+                    let typeText = 'standard forecast or significant change';
+                    if (changeIndicator === 'PROB') {
+                        typeText = 'PROB: probability forecast';
+                    } else if (changeIndicator === 'TEMPO') {
+                        typeText = 'TEMPO: expected for less than half the time period';
+                    }
+                    
+                    let periodText = '--';
+                    if (fc.from && fc.to) {
+                        const fromDate = new Date(fc.from);
+                        const toDate = new Date(fc.to);
+                        
+                        const formatTafTime = (d) => {
+                            const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                            const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                            const day = d.getUTCDate();
+                            const dayName = days[d.getUTCDay()];
+                            const monthName = months[d.getUTCMonth()];
+                            const year = d.getUTCFullYear();
+                            const hours = String(d.getUTCHours()).padStart(2, '0');
+                            const mins = String(d.getUTCMinutes()).padStart(2, '0');
+                            return hours + mins + ' UTC ' + day + ' ' + dayName + ' ' + monthName + ' ' + year;
+                        };
+                        
+                        periodText = formatTafTime(fromDate) + ' to ' + formatTafTime(toDate);
+                    }
+                    
+                    let cloudText = '--';
+                    if (fc.clouds && fc.clouds.length > 0) {
+                        const cloudParts = [];
+                        fc.clouds.forEach(c => {
+                            const cover = c.cover || 'CLR';
+                            if (c.base !== null && c.base !== undefined) {
+                                const baseFt = c.base * 100;  // METAR cloud base is in hundreds of feet
+                                cloudParts.push(cover.toLowerCase() + ' clouds at ' + baseFt.toLocaleString() + ' ft');
+                            }
+                        });
+                        cloudText = cloudParts.join(', ');
+                    }
+                    
+                    div.innerHTML = 
+                        '<div class="decoded-row"><span class="decoded-label">Text:</span><span class="decoded-value">' + changeIndicator + '</span></div>' +
+                        '<div class="decoded-row"><span class="decoded-label">Forecast period:</span><span class="decoded-value">' + periodText + '</span></div>' +
+                        '<div class="decoded-row"><span class="decoded-label">Forecast type:</span><span class="decoded-value">' + typeText + '</span></div>' +
+                        '<div class="decoded-row"><span class="decoded-label">Clouds:</span><span class="decoded-value">' + cloudText + '</span></div>';
+                    
+                    additionalContainer.appendChild(div);
+                }
+            }
+        }
+    }
 
     // Fetch METAR for specific station
     async function fetchMetarForStation(station, prefix) {
@@ -269,7 +819,9 @@ document.addEventListener('DOMContentLoaded', function() {
                     clouds = m.clouds.map(c => (c.cover || 'CLR') + (c.base ? ' ' + c.base + '00ft' : '')).join(' ');
                 }
                 if (cloudsEl) cloudsEl.textContent = clouds;
-                if (tempEl) tempEl.textContent = (m.temp ?? '--') + '° / ' + (m.dwpt ?? '--') + '°';
+                const tempVal = m.temp ?? m.temperature ?? null;
+                const dwptVal = m.dwpt ?? m.dewpt ?? m.dewpoint ?? null;
+                if (tempEl) tempEl.textContent = (tempVal ?? '--') + '° / ' + (dwptVal ?? '--') + '°';
                 if (qnhEl) qnhEl.textContent = formatAltimeter(m.altim);
                 
                 const cat = m.fltCat || 'VFR';
@@ -373,7 +925,6 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Fetch METAR
     async function fetchMetar(forceUpdate = false) {
-        document.getElementById('refreshMetar').textContent = '...';
         try {
             // Add cache-busting parameter and hours parameter to get latest
             const cacheBuster = Date.now();
@@ -396,7 +947,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Update Dashboard (main page)
                     safeText('metarTime', m.reportTime ? new Date(m.reportTime).toUTCString().slice(0, -7) : '--');
                     safeText('metarText', raw);
-                    safeValue('metarInput', raw);
+                    currentMetarRaw = raw;
                     
                     const wind = (m.wdir ?? 'VAR') + '° @ ' + (m.wspd ?? '--') + 'kt' + (m.wgst ? ' G' + m.wgst + 'kt' : '');
                     safeText('metarWind', wind);
@@ -407,8 +958,28 @@ document.addEventListener('DOMContentLoaded', function() {
                         clouds = m.clouds.map(c => (c.cover || 'CLR') + (c.base ? c.base + 'kft' : '')).join(' ');
                     }
                     safeText('metarClouds', clouds);
-                    safeText('metarTemp', (m.temp ?? '--') + '°C / ' + (m.dwpt ?? '--') + '°C');
+                    const tempValue = m.temp ?? m.temperature ?? null;
+                    const dwptValue = m.dwpt ?? m.dewpt ?? m.dewpoint ?? null;
+                    safeText('metarTemp', (tempValue ?? '--') + '°C / ' + (dwptValue ?? '--') + '°C');
                     safeText('metarAltimeter', formatAltimeter(m.altim));
+                    
+                    // Update Dashboard METAR window
+                    // Parse raw METAR to get accurate data
+                    const parsedMetar = parseMetarFromRaw(raw);
+                    
+                    updateMetarForDisplay(currentStation, locations[currentLocation].name);
+                    safeText('metarText', raw);
+                    safeText('metarConditions', formatMetarConditionsTime(m.reportTime, parsedMetar.time));
+                    
+                    // Use parsed values from raw METAR (more accurate than API)
+                    const temp = parsedMetar.temp ?? m.temp ?? m.temperature ?? null;
+                    const dwpt = parsedMetar.dewpt ?? m.dwpt ?? m.dewpt ?? m.dewpoint ?? null;
+                    safeText('metarTemp', formatTemperature(temp));
+                    safeText('metarDewpoint', formatDewpoint(dwpt, temp));
+                    safeText('metarPressure', formatPressure(m.altim));
+                    safeText('metarWinds', formatWindsDetailed(m));
+                    safeText('metarVisibility', formatVisibilityDetailed(m));
+                    safeText('metarClouds', formatCloudsDetailed(m));
                     
                     // Update Detail view (METAR tab)
                     safeText('detailMetarRaw', raw);
@@ -417,13 +988,17 @@ document.addEventListener('DOMContentLoaded', function() {
                     safeText('decWind', wind);
                     safeText('decVisibility', formatVisibility(m) + ' SM');
                     safeText('decClouds', clouds);
-                    safeText('decTemp', (m.temp ?? '--') + '°C');
-                    safeText('decDewp', (m.dwpt ?? '--') + '°C');
+                    const decTemp = m.temp ?? m.temperature ?? null;
+                    const decDwpt = m.dwpt ?? m.dewpt ?? m.dewpoint ?? null;
+                    safeText('decTemp', (decTemp ?? '--') + '°C');
+                    safeText('decDewp', (decDwpt ?? '--') + '°C');
                     safeText('decAltim', formatAltimeter(m.altim));
                     
-                    const cat = m.fltCat || 'VFR';
                     safeText('metarFltCat', cat);
                     safeClass('metarFltCat', 'badge ' + cat.toLowerCase());
+                    
+                    // Update Dashboard decoded METAR
+                    updateDecodedMetar(m);
                     
                     if (!isFirstLoad && isNewData) {
                         showToast('New METAR received!');
@@ -434,7 +1009,6 @@ document.addEventListener('DOMContentLoaded', function() {
             console.error(e);
             showToast('Failed to fetch METAR');
         }
-        document.getElementById('refreshMetar').textContent = '↻';
     }
 
     // Fetch TAF
@@ -460,7 +1034,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Update Dashboard
                     document.getElementById('tafTime').textContent = t.issueTime ? new Date(t.issueTime).toUTCString().slice(0, -7) : '--';
                     document.getElementById('tafText').textContent = raw;
-                    document.getElementById('tafInput').value = raw;
+                    currentTafRaw = raw;
                     
                     // Quick forecast (Dashboard)
                     const fcContainer = document.getElementById('tafForecast');
@@ -491,6 +1065,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         });
                     }
                     
+                    updateDecodedTaf(t);
+                    
                     if (!isFirstLoad && isNewData) {
                         showToast('New TAF received!');
                     }
@@ -520,23 +1096,144 @@ document.addEventListener('DOMContentLoaded', function() {
     setInterval(checkForUpdates, 30 * 1000);
 
     // Refresh buttons
-    document.getElementById('refreshMetar').addEventListener('click', function() {
-        fetchMetar(true);
-    });
     document.getElementById('refreshTaf').addEventListener('click', function() {
         fetchTaf(true);
     });
 
-    // Copy buttons
-    document.querySelector('[data-copy="metar"]').addEventListener('click', async function() {
-        if (await copyToClipboard(document.getElementById('metarInput').value)) showToast('METAR copied!');
-    });
+    // Copy button for TAF
     document.querySelector('[data-copy="taf"]').addEventListener('click', async function() {
-        if (await copyToClipboard(document.getElementById('tafInput').value)) showToast('TAF copied!');
+        if (await copyToClipboard(currentTafRaw || '')) showToast('TAF copied!');
     });
-    copyAllBtn.addEventListener('click', async function() {
-        const all = '=== METAR ===\n' + document.getElementById('metarInput').value + '\n\n=== TAF ===\n' + document.getElementById('tafInput').value;
-        if (await copyToClipboard(all)) showToast('All data copied!');
+    
+    // ATK (Prompt Template) Function
+    async function processPromptTemplate(template) {
+        const metarRaw = currentMetarRaw || '';
+        const tafRaw = currentTafRaw || '';
+        const stationCode = currentStation;
+        
+        const now = new Date();
+        const timeStr = now.toUTCString().slice(0, -7) + ' UTC';
+        
+        let processed = template;
+        
+        processed = processed.replace(/@metar/g, metarRaw);
+        processed = processed.replace(/@taf/g, tafRaw);
+        processed = processed.replace(/@station/g, stationCode);
+        processed = processed.replace(/@time/g, timeStr);
+        
+        // @6-metar - get last 6 hours of METAR from history
+        let metar6h = '';
+        try {
+            const cacheBuster = Date.now();
+            const url = buildMetarUrl({ ids: stationCode, hours: 6, cache: cacheBuster });
+            const data = await fetchAviationWeatherJson(url);
+            if (data && data.length > 0) {
+                data.sort((a, b) => new Date(b.reportTime) - new Date(a.reportTime));
+                metar6h = data.map(m => m.rawOb || '').filter(Boolean).join('\n');
+            }
+        } catch (e) {
+            console.warn('Failed to fetch 6h METAR:', e);
+        }
+        processed = processed.replace(/@6-metar/g, metar6h || 'No METAR data available');
+        
+        // @6-taf - TAF forecast for next 6 hours
+        let taf6h = '';
+        try {
+            const cacheBuster = Date.now();
+            const url = 'https://aviationweather.gov/api/data/taf?ids=' + stationCode + '&format=json&cache=' + cacheBuster;
+            const data = await fetchAviationWeatherJson(url);
+            if (data && data.length > 0) {
+                const t = data[0];
+                if (t.forecasts) {
+                    const sixHoursFromNow = new Date(Date.now() + 6 * 60 * 60 * 1000);
+                    const relevantForecasts = t.forecasts.filter(fc => {
+                        if (!fc.to) return true;
+                        return new Date(fc.to) <= sixHoursFromNow;
+                    });
+                    taf6h = relevantForecasts.map(fc => {
+                        const from = fc.from ? new Date(fc.from).toUTCString().slice(0, -7) : '';
+                        const to = fc.to ? new Date(fc.to).toUTCString().slice(0, -7) : '';
+                        const change = fc.changeIndicator || '';
+                        const wind = (fc.wdir ?? '---') + '° @ ' + (fc.wspd ?? '--') + 'kt';
+                        const vis = fc.visib ?? fc.vis ?? '--';
+                        let clouds = '--';
+                        if (fc.clouds && fc.clouds.length > 0) {
+                            clouds = fc.clouds.map(c => (c.cover || 'CLR') + (c.base ? ' ' + c.base + 'kft' : '')).join(' ');
+                        }
+                        return `[${from} - ${to}] ${change}\n  Wind: ${wind}, Vis: ${vis} SM, Clouds: ${clouds}`;
+                    }).join('\n\n');
+                }
+                if (!taf6h) taf6h = t.rawTAF || '';
+            }
+        } catch (e) {
+            console.warn('Failed to fetch 6h TAF:', e);
+        }
+        processed = processed.replace(/@6-taf/g, taf6h || 'No TAF data available');
+        
+        // @satellite - satellite sounding data
+        let satelliteDataStr = '';
+        try {
+            const savedData = localStorage.getItem('satelliteData');
+            if (savedData) {
+                const data = parseSatelliteData(savedData);
+                if (data.length > 0) {
+                    satelliteDataStr = data.map(d => 
+                        `${d.pressure.toFixed(1)} hPa | Alt: ${d.altitude}m | Temp: ${d.temp.toFixed(1)}°C | Dewp: ${d.dewpt.toFixed(1)}°C | RH: ${d.rh}% | Wind: ${d.wdir}°/${d.wspd.toFixed(0)}kt | Theta: ${d.theta.toFixed(1)} | ThetaE: ${d.thetaE.toFixed(1)}`
+                    ).join('\n');
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to get satellite data:', e);
+        }
+        processed = processed.replace(/@satellite/g, satelliteDataStr || 'No satellite data available');
+        
+        // @metar-history - full history with details
+        let metarHistory = '';
+        try {
+            const cacheBuster = Date.now();
+            const url = buildMetarUrl({ ids: stationCode, hours: 6, cache: cacheBuster });
+            const data = await fetchAviationWeatherJson(url);
+            if (data && data.length > 0) {
+                data.sort((a, b) => new Date(b.reportTime) - new Date(a.reportTime));
+                metarHistory = data.map(m => {
+                    const time = m.reportTime ? new Date(m.reportTime).toUTCString().slice(0, -7) : '--';
+                    const wind = (m.wdir ?? 'VAR') + '° @ ' + (m.wspd ?? '--') + 'kt';
+                    const vis = m.visib ?? m.vis ?? '--';
+                    const temp = m.temp ?? '--';
+                    const cat = m.fltCat || 'VFR';
+                    return `[${time}] ${m.rawOb}\n  Wind: ${wind}, Vis: ${vis}, Temp: ${temp}°C, Cat: ${cat}`;
+                }).join('\n\n');
+            }
+        } catch (e) {
+            console.warn('Failed to fetch METAR history:', e);
+        }
+        processed = processed.replace(/@metar-history/g, metarHistory || 'No METAR history available');
+        
+        return processed;
+    }
+    
+    copyPromptBtn.addEventListener('click', async function() {
+        const promptTemplate = document.getElementById('promptInput').value;
+        if (!promptTemplate.trim()) {
+            showToast('Write a prompt first!');
+            return;
+        }
+        const processedText = await processPromptTemplate(promptTemplate);
+        if (await copyToClipboard(processedText)) showToast('Prompt copied!');
+    });
+    
+    // Keyword button click - insert at cursor position
+    document.querySelectorAll('.keyword-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const keyword = this.dataset.keyword;
+            const promptInput = document.getElementById('promptInput');
+            const start = promptInput.selectionStart;
+            const end = promptInput.selectionEnd;
+            const text = promptInput.value;
+            promptInput.value = text.substring(0, start) + keyword + text.substring(end);
+            promptInput.focus();
+            promptInput.selectionStart = promptInput.selectionEnd = start + keyword.length;
+        });
     });
 
     // Data Tab - AI Predictions
@@ -757,20 +1454,27 @@ document.addEventListener('DOMContentLoaded', function() {
             const displayDate = satelliteUpdateDateStr;
             
             dateEl.textContent = displayDate;
-            dashDateEl.querySelector('.dash-date-value').textContent = displayDate;
+            if (dashDateEl) {
+                dashDateEl.querySelector('.dash-date-value').textContent = displayDate;
+            }
+            
+
             
             if (satelliteUpdateDateStr === yesterday || satelliteUpdateDateStr < yesterday) {
                 dateEl.classList.add('stale');
-                dashDateEl.classList.add('stale');
+                if (dashDateEl) dashDateEl.classList.add('stale');
             } else {
                 dateEl.classList.remove('stale');
-                dashDateEl.classList.remove('stale');
+                if (dashDateEl) dashDateEl.classList.remove('stale');
             }
         } else {
             dateEl.textContent = 'Never';
             dateEl.classList.add('stale');
-            dashDateEl.querySelector('.dash-date-value').textContent = 'Never';
-            dashDateEl.classList.add('stale');
+            if (dashDateEl) {
+                dashDateEl.querySelector('.dash-date-value').textContent = 'Never';
+                dashDateEl.classList.add('stale');
+            }
+
         }
     }
     
@@ -1035,6 +1739,41 @@ document.addEventListener('DOMContentLoaded', function() {
             ctx.fillText(temp.toFixed(0) + '°', padding.left - 10, y + 4);
         }
         
+        let maxTempIndex = 0;
+        let maxTempValue = temps[0];
+        for (let i = 1; i < temps.length; i++) {
+            if (temps[i] > maxTempValue) {
+                maxTempValue = temps[i];
+                maxTempIndex = i;
+            }
+        }
+        
+        let secondMaxTempIndex = -1;
+        let secondMaxTempValue = -Infinity;
+        for (let i = 0; i < temps.length; i++) {
+            if (i !== maxTempIndex && temps[i] > secondMaxTempValue) {
+                secondMaxTempValue = temps[i];
+                secondMaxTempIndex = i;
+            }
+        }
+        
+        const greenZoneIndex = Math.max(0, maxTempIndex - 3);
+        const zoneWidth = chartWidth / Math.max(temps.length - 1, 1);
+        
+        ctx.fillStyle = 'rgba(34, 197, 94, 0.3)';
+        const greenX = padding.left + zoneWidth * greenZoneIndex;
+        ctx.fillRect(greenX - zoneWidth * 0.5, padding.top, zoneWidth, chartHeight);
+        
+        if (secondMaxTempIndex >= 0 && secondMaxTempIndex !== maxTempIndex) {
+            ctx.fillStyle = 'rgba(255, 220, 0, 0.4)';
+            const yellowX = padding.left + zoneWidth * secondMaxTempIndex;
+            ctx.fillRect(yellowX - zoneWidth * 0.5, padding.top, zoneWidth, chartHeight);
+        }
+        
+        ctx.fillStyle = 'rgba(239, 68, 68, 0.4)';
+        const redX = padding.left + zoneWidth * maxTempIndex;
+        ctx.fillRect(redX - zoneWidth * 0.5, padding.top, zoneWidth, chartHeight);
+        
         ctx.fillStyle = textColor;
         ctx.font = '10px sans-serif';
         ctx.textAlign = 'center';
@@ -1096,19 +1835,22 @@ document.addEventListener('DOMContentLoaded', function() {
     function updateHourlyGrid(temps, times, currentHour) {
         const grid = document.getElementById('trendHourlyGrid');
         const tableBody = document.getElementById('trendHourlyTableBody');
-        grid.innerHTML = '';
+        if (!grid && !tableBody) return;
+        if (grid) grid.innerHTML = '';
         if (tableBody) tableBody.innerHTML = '';
         
         const safeCurrentHour = Math.min(currentHour, temps.length - 1);
         
         temps.forEach((temp, i) => {
-            const item = document.createElement('div');
-            item.className = 'trend-hourly-item' + (i === safeCurrentHour ? ' current' : '');
-            const timeLabel = times && times[i] ? times[i].slice(11, 16) : i.toString().padStart(2, '0') + ':00';
-            item.innerHTML = 
-                '<div class="trend-hourly-time">' + timeLabel + '</div>' +
-                '<div class="trend-hourly-temp">' + temp.toFixed(1) + '°</div>';
-            grid.appendChild(item);
+            if (grid) {
+                const item = document.createElement('div');
+                item.className = 'trend-hourly-item' + (i === safeCurrentHour ? ' current' : '');
+                const timeLabel = times && times[i] ? times[i].slice(11, 16) : i.toString().padStart(2, '0') + ':00';
+                item.innerHTML = 
+                    '<div class="trend-hourly-time">' + timeLabel + '</div>' +
+                    '<div class="trend-hourly-temp">' + temp.toFixed(1) + '°</div>';
+                grid.appendChild(item);
+            }
 
             if (tableBody) {
                 const row = document.createElement('tr');

@@ -72,12 +72,12 @@
                         <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
                     </svg>
                 </button>
-                <button class="btn-copy" id="copyAllBtn">
+                <button class="btn-copy" id="copyPromptBtn">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
                     </svg>
-                    Copy All
+                    Copy Prompt
                 </button>
             </div>
         </header>
@@ -96,15 +96,12 @@
         <!-- Main Content -->
         <main class="main-content">
             <!-- Dashboard -->
-            <div class="tab-content" id="tab-dashboard">
-                <div class="detail-header">
-                    <h2>Dashboard Overview</h2>
-                    <span class="station-badge">EGLC</span>
-                </div>
+            <div class="tab-content active" id="tab-dashboard">
+                <!-- Dashboard content shown in window below -->
             </div>
 
             <!-- METAR Detail -->
-            <div class="tab-content active" id="tab-metar">
+            <div class="tab-content" id="tab-metar">
                 <div class="detail-header">
                     <h2>METAR</h2>
                 </div>
@@ -454,27 +451,7 @@ Format: Pressure  Altitude  Temp  Dewpoint  RH  MixRatio  WindDir  WindSpeed  Th
                     </div>
                 </div>
                 
-                <div class="trend-hourly-data">
-                    <h3>Hourly Data</h3>
-                    <div class="trend-hourly-grid" id="trendHourlyGrid">
-                        <div class="trend-hourly-item">Loading...</div>
-                    </div>
-                    <div class="trend-hourly-table">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Time</th>
-                                    <th>Temp</th>
-                                </tr>
-                            </thead>
-                            <tbody id="trendHourlyTableBody">
-                                <tr>
-                                    <td colspan="2">Loading...</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+
             </div>
 
             <!-- Archive -->
@@ -518,30 +495,53 @@ Format: Pressure  Altitude  Temp  Dewpoint  RH  MixRatio  WindDir  WindSpeed  Th
 
         <!-- Quick View Windows -->
         <div class="windows-row">
-            <!-- METAR -->
-            <div class="window">
+            <!-- METAR Window -->
+            <div class="window dashboard-window">
                 <div class="window-header">
                     <div class="window-title">
                         <span class="window-icon metar">M</span>
                         <h2>METAR</h2>
-                        <button class="refresh-btn" id="refreshMetar">↻</button>
                     </div>
-                    <button class="copy-btn" data-copy="metar">📋</button>
                 </div>
                 <div class="window-content">
-                    <div class="station-header">
-                        <span class="station-name">EGLC</span>
-                        <span class="station-time" id="metarTime">Loading...</span>
+                    <div class="metar-display">
+                        <div class="metar-item">
+                            <span class="metar-label">METAR for:</span>
+                            <span class="metar-value" id="metarFor">EGLC (London City Arpt, EN, GB)</span>
+                        </div>
+                        <div class="metar-item metar-text">
+                            <span class="metar-label">Text:</span>
+                            <span class="metar-value" id="metarText">Loading...</span>
+                        </div>
+                        <div class="metar-item">
+                            <span class="metar-label">Conditions at:</span>
+                            <span class="metar-value" id="metarConditions">--</span>
+                        </div>
+                        <div class="metar-item">
+                            <span class="metar-label">Temperature:</span>
+                            <span class="metar-value" id="metarTemp">--°C (--°F)</span>
+                        </div>
+                        <div class="metar-item">
+                            <span class="metar-label">Dewpoint:</span>
+                            <span class="metar-value" id="metarDewpoint">--°C (--°F) (RH = --%)</span>
+                        </div>
+                        <div class="metar-item">
+                            <span class="metar-label">Pressure (altimeter):</span>
+                            <span class="metar-value" id="metarPressure">-- inHg (-- hPa)</span>
+                        </div>
+                        <div class="metar-item">
+                            <span class="metar-label">Winds:</span>
+                            <span class="metar-value" id="metarWinds">--</span>
+                        </div>
+                        <div class="metar-item">
+                            <span class="metar-label">Visibility:</span>
+                            <span class="metar-value" id="metarVisibility">--</span>
+                        </div>
+                        <div class="metar-item">
+                            <span class="metar-label">Clouds:</span>
+                            <span class="metar-value" id="metarClouds">--</span>
+                        </div>
                     </div>
-                    <div class="metar-text" id="metarText">Loading...</div>
-                    <div class="metar-details">
-                        <div class="detail-row"><span>Wind</span><span id="metarWind">--</span></div>
-                        <div class="detail-row"><span>Visibility</span><span id="metarVisibility">--</span></div>
-                        <div class="detail-row"><span>Clouds</span><span id="metarClouds">--</span></div>
-                        <div class="detail-row"><span>Temp/Dew</span><span id="metarTemp">--</span></div>
-                        <div class="detail-row"><span>Altimeter</span><span id="metarAltimeter">--</span></div>
-                    </div>
-                    <textarea class="raw-input" id="metarInput" placeholder="METAR..."></textarea>
                 </div>
             </div>
 
@@ -562,7 +562,6 @@ Format: Pressure  Altitude  Temp  Dewpoint  RH  MixRatio  WindDir  WindSpeed  Th
                     </div>
                     <div class="taf-text" id="tafText">Loading...</div>
                     <div class="taf-forecast" id="tafForecast"></div>
-                    <textarea class="raw-input" id="tafInput" placeholder="TAF..."></textarea>
                 </div>
             </div>
 
@@ -588,6 +587,28 @@ Format: Pressure  Altitude  Temp  Dewpoint  RH  MixRatio  WindDir  WindSpeed  Th
                         </div>
                     </div>
                 </div>
+            </div>
+        </div>
+
+        <!-- Prompt -->
+        <div class="prompt-container">
+            <div class="prompt-header">
+                <span class="prompt-label">Prompt Template</span>
+                <span class="keyword-hint" id="keywordHint">Click on a keyword to insert</span>
+            </div>
+            <textarea class="prompt-input" id="promptInput" placeholder="Write your prompt here. Use @keywords to insert weather data.
+
+Example: Here is the METAR: @metar and here is the TAF: @taf"></textarea>
+            <div class="keyword-reference">
+                <span class="keyword-ref-title">Keywords:</span>
+                <button class="keyword-btn" data-keyword="@metar" title="Current METAR">@metar</button>
+                <button class="keyword-btn" data-keyword="@taf" title="Current TAF">@taf</button>
+                <button class="keyword-btn" data-keyword="@6-metar" title="METAR from last 6 hours">@6-metar</button>
+                <button class="keyword-btn" data-keyword="@6-taf" title="TAF forecast for next 6 hours">@6-taf</button>
+                <button class="keyword-btn" data-keyword="@metar-history" title="Full METAR history">@metar-history</button>
+                <button class="keyword-btn" data-keyword="@satellite" title="Satellite sounding data">@satellite</button>
+                <button class="keyword-btn" data-keyword="@station" title="Current station code">@station</button>
+                <button class="keyword-btn" data-keyword="@time" title="Current time">@time</button>
             </div>
         </div>
 
