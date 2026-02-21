@@ -461,46 +461,119 @@ document.addEventListener('DOMContentLoaded', function() {
         if (await copyToClipboard(all)) showToast('All data copied!');
     });
 
-    // Table
-    const tableBody = document.getElementById('inputTableBody');
+    // Data Tab - AI Predictions
+    const dataBody = document.getElementById('dataPredictionsBody');
     
-    function updateTableSummary() {
-        const rows = tableBody.querySelectorAll('tr');
-        let tw = 0, tt = 0, mv = Infinity, c = 0;
+    function updateDataSummary() {
+        const rows = dataBody.querySelectorAll('tr');
+        let grokErrors = [], googleErrors = [], claudeErrors = [];
+        
         rows.forEach(r => {
-            const i = r.querySelectorAll('input');
-            tw += parseFloat(i[3].value) || 0;
-            tt += parseFloat(i[7].value) || 0;
-            mv = Math.min(mv, parseFloat(i[5].value) || Infinity);
-            c++;
+            const inputs = r.querySelectorAll('input');
+            const grok = parseFloat(inputs[2].value);
+            const google = parseFloat(inputs[3].value);
+            const claude = parseFloat(inputs[4].value);
+            const result = parseFloat(inputs[6].value);
+            
+            if (!isNaN(result)) {
+                if (!isNaN(grok)) grokErrors.push(Math.abs(grok - result));
+                if (!isNaN(google)) googleErrors.push(Math.abs(google - result));
+                if (!isNaN(claude)) claudeErrors.push(Math.abs(claude - result));
+            }
         });
-        document.getElementById('avgWind').textContent = c ? Math.round(tw/c) + ' kt' : '--';
-        document.getElementById('avgTemp').textContent = c ? Math.round(tt/c) + '°C' : '--';
-        document.getElementById('minVis').textContent = mv === Infinity ? '--' : mv + ' SM';
-        document.getElementById('rowCount').textContent = c;
+        
+        const avg = arr => arr.length ? (arr.reduce((a,b) => a+b, 0) / arr.length).toFixed(1) + '°' : '--';
+        
+        document.getElementById('grokAvgError').textContent = avg(grokErrors);
+        document.getElementById('googleAvgError').textContent = avg(googleErrors);
+        document.getElementById('claudeAvgError').textContent = avg(claudeErrors);
+        
+        // Determine best AI
+        const errors = [
+            { name: 'Grok', err: grokErrors.length ? grokErrors.reduce((a,b) => a+b, 0) / grokErrors.length : Infinity },
+            { name: 'Google', err: googleErrors.length ? googleErrors.reduce((a,b) => a+b, 0) / googleErrors.length : Infinity },
+            { name: 'Claude', err: claudeErrors.length ? claudeErrors.reduce((a,b) => a+b, 0) / claudeErrors.length : Infinity }
+        ];
+        
+        errors.sort((a, b) => a.err - b.err);
+        document.getElementById('bestAI').textContent = errors[0].err === Infinity ? '--' : errors[0].name;
     }
     
-tableBody.addEventListener('click', function(e) {
+    dataBody.addEventListener('click', function(e) {
         if (e.target.classList.contains('delete-btn')) {
             e.target.closest('tr').remove();
-            updateTableSummary();
+            updateDataSummary();
+            saveDataToStorage();
         }
     });
-    tableBody.addEventListener('input', updateTableSummary);
     
-    document.getElementById('addRowBtn').addEventListener('click', function() {
-        const row = document.createElement('tr');
-        row.innerHTML = '<td><input type="date" class="table-input" value="2026-02-20"></td><td><input type="time" class="table-input" value="12:00"></td><td><input type="number" class="table-input" value="270"></td><td><input type="number" class="table-input" value="12"></td><td><input type="number" class="table-input" value="0"></td><td><input type="number" class="table-input" value="10"></td><td><input type="number" class="table-input" value="5000"></td><td><input type="number" class="table-input" value="15"></td><td><input type="number" class="table-input" value="8"></td><td><input type="number" class="table-input" value="30.10" step="0.01"></td><td><button class="delete-btn">×</button></td>';
-        tableBody.appendChild(row);
-        updateTableSummary();
+    dataBody.addEventListener('input', function() {
+        updateDataSummary();
+        saveDataToStorage();
     });
+    
+    document.getElementById('addDataRowBtn').addEventListener('click', function() {
+        const today = new Date().toISOString().split('T')[0];
+        const row = document.createElement('tr');
+        row.innerHTML = 
+            '<td><input type="date" class="table-input" value="' + today + '"></td>' +
+            '<td><input type="time" class="table-input" value="12:00"></td>' +
+            '<td><input type="number" class="table-input ai-input" step="0.1" placeholder="--"></td>' +
+            '<td><input type="number" class="table-input ai-input" step="0.1" placeholder="--"></td>' +
+            '<td><input type="number" class="table-input ai-input" step="0.1" placeholder="--"></td>' +
+            '<td><input type="time" class="table-input" value="12:00"></td>' +
+            '<td><input type="number" class="table-input result-input" step="0.1" placeholder="--"></td>' +
+            '<td><button class="delete-btn">×</button></td>';
+        dataBody.appendChild(row);
+        saveDataToStorage();
+    });
+    
+    function saveDataToStorage() {
+        const rows = dataBody.querySelectorAll('tr');
+        const data = [];
+        rows.forEach(r => {
+            const inputs = r.querySelectorAll('input');
+            data.push({
+                date: inputs[0].value,
+                time: inputs[1].value,
+                grok: inputs[2].value,
+                google: inputs[3].value,
+                claude: inputs[4].value,
+                trendPoint: inputs[5].value,
+                result: inputs[6].value
+            });
+        });
+        localStorage.setItem('aiPredictionsData', JSON.stringify(data));
+    }
+    
+    function loadDataFromStorage() {
+        const saved = localStorage.getItem('aiPredictionsData');
+        if (saved) {
+            const data = JSON.parse(saved);
+            dataBody.innerHTML = '';
+            data.forEach(d => {
+                const row = document.createElement('tr');
+                row.innerHTML = 
+                    '<td><input type="date" class="table-input" value="' + d.date + '"></td>' +
+                    '<td><input type="time" class="table-input" value="' + d.time + '"></td>' +
+                    '<td><input type="number" class="table-input ai-input" step="0.1" placeholder="--" value="' + (d.grok || '') + '"></td>' +
+                    '<td><input type="number" class="table-input ai-input" step="0.1" placeholder="--" value="' + (d.google || '') + '"></td>' +
+                    '<td><input type="number" class="table-input ai-input" step="0.1" placeholder="--" value="' + (d.claude || '') + '"></td>' +
+                    '<td><input type="time" class="table-input" value="' + d.trendPoint + '"></td>' +
+                    '<td><input type="number" class="table-input result-input" step="0.1" placeholder="--" value="' + (d.result || '') + '"></td>' +
+                    '<td><button class="delete-btn">×</button></td>';
+                dataBody.appendChild(row);
+            });
+            updateDataSummary();
+        }
+    }
     
     document.getElementById('saveDataBtn').addEventListener('click', function() {
         this.textContent = 'Saved!';
         setTimeout(() => this.textContent = 'Save Data', 1500);
     });
     
-    updateTableSummary();
+    loadDataFromStorage();
 
     // Satellite Data Functions
     let satelliteData = [];

@@ -363,62 +363,59 @@ Format: Pressure  Altitude  Temp  Dewpoint  RH  MixRatio  WindDir  WindSpeed  Th
             <!-- Data Input -->
             <div class="tab-content" id="tab-data">
                 <div class="detail-header">
-                    <h2>Weather Data Input</h2>
+                    <h2>AI Predictions Tracker</h2>
                     <div class="header-actions">
-                        <button class="btn-secondary" id="addRowBtn">+ Add Row</button>
+                        <button class="btn-secondary" id="addDataRowBtn">+ Add Row</button>
                         <button class="btn-primary" id="saveDataBtn">Save Data</button>
                     </div>
                 </div>
-                <div class="table-container">
-                    <table class="data-table">
+                <div class="data-table-container">
+                    <table class="data-predictions-table">
                         <thead>
                             <tr>
-                                <th>Date</th>
-                                <th>Time (Z)</th>
-                                <th>Wind Dir</th>
-                                <th>Wind Speed</th>
-                                <th>Gust</th>
-                                <th>Visibility</th>
-                                <th>Cloud Base</th>
-                                <th>Temp</th>
-                                <th>Dewpoint</th>
-                                <th>Altimeter</th>
-                                <th></th>
+                                <th rowspan="2">Date</th>
+                                <th rowspan="2">Time (Z)</th>
+                                <th colspan="3" class="ai-header">AI Predictions</th>
+                                <th rowspan="2">Trend Point</th>
+                                <th rowspan="2">Result Temp (°C)</th>
+                                <th rowspan="2"></th>
+                            </tr>
+                            <tr>
+                                <th class="ai-grok">Grok (°C)</th>
+                                <th class="ai-google">Google (°C)</th>
+                                <th class="ai-claude">Claude (°C)</th>
                             </tr>
                         </thead>
-                        <tbody id="inputTableBody">
+                        <tbody id="dataPredictionsBody">
                             <tr>
-                                <td><input type="date" class="table-input" value="2026-02-20"></td>
+                                <td><input type="date" class="table-input" value="2026-02-21"></td>
                                 <td><input type="time" class="table-input" value="12:00"></td>
-                                <td><input type="number" class="table-input" value="270"></td>
-                                <td><input type="number" class="table-input" value="12"></td>
-                                <td><input type="number" class="table-input" value="18"></td>
-                                <td><input type="number" class="table-input" value="10"></td>
-                                <td><input type="number" class="table-input" value="4500"></td>
-                                <td><input type="number" class="table-input" value="15"></td>
-                                <td><input type="number" class="table-input" value="8"></td>
-                                <td><input type="number" class="table-input" value="30.12" step="0.01"></td>
+                                <td><input type="number" class="table-input ai-input" step="0.1" placeholder="--"></td>
+                                <td><input type="number" class="table-input ai-input" step="0.1" placeholder="--"></td>
+                                <td><input type="number" class="table-input ai-input" step="0.1" placeholder="--"></td>
+                                <td><input type="time" class="table-input" value="12:00"></td>
+                                <td><input type="number" class="table-input result-input" step="0.1" placeholder="--"></td>
                                 <td><button class="delete-btn">×</button></td>
                             </tr>
                         </tbody>
                     </table>
                 </div>
-                <div class="table-summary">
+                <div class="data-summary">
                     <div class="summary-card">
-                        <span class="summary-label">Avg Wind</span>
-                        <span class="summary-value" id="avgWind">12 kt</span>
+                        <span class="summary-label">Grok Avg Error</span>
+                        <span class="summary-value" id="grokAvgError">--</span>
                     </div>
                     <div class="summary-card">
-                        <span class="summary-label">Avg Temp</span>
-                        <span class="summary-value" id="avgTemp">15°C</span>
+                        <span class="summary-label">Google Avg Error</span>
+                        <span class="summary-value" id="googleAvgError">--</span>
                     </div>
                     <div class="summary-card">
-                        <span class="summary-label">Min Visibility</span>
-                        <span class="summary-value" id="minVis">10 SM</span>
+                        <span class="summary-label">Claude Avg Error</span>
+                        <span class="summary-value" id="claudeAvgError">--</span>
                     </div>
                     <div class="summary-card">
-                        <span class="summary-label">Rows</span>
-                        <span class="summary-value" id="rowCount">1</span>
+                        <span class="summary-label">Best AI</span>
+                        <span class="summary-value" id="bestAI">--</span>
                     </div>
                 </div>
             </div>
