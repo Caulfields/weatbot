@@ -8,6 +8,51 @@
 </head>
 <body>
     <div class="app">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <button class="sidebar-toggle" id="sidebarToggle">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="15 18 9 12 15 6"/>
+                </svg>
+            </button>
+            <div class="user-profile">
+                <div class="avatar">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                        <circle cx="12" cy="7" r="4"></circle>
+                    </svg>
+                </div>
+                <div class="user-info" style="text-align: center;">
+                    <div class="user-name">ALEX JOHNSON</div>
+                    <div class="user-email">alex.johnson@gmail.com</div>
+                </div>
+            </div>
+            
+            <div class="sidebar-section-title">LOCATIONS</div>
+            <nav class="location-nav">
+                <button class="location-btn active" data-location="london" data-station="EGLC">
+                    <span class="location-icon">🇬🇧</span>
+                    <span class="location-name">London</span>
+                    <span class="location-code">EGLC</span>
+                </button>
+                <button class="location-btn" data-location="paris" data-station="LFPG">
+                    <span class="location-icon">🇫🇷</span>
+                    <span class="location-name">Paris</span>
+                    <span class="location-code">LFPG</span>
+                </button>
+            </nav>
+
+            <div style="flex: 1;"></div>
+            
+            <div class="sidebar-bottom" style="padding: 20px; opacity: 0.3; margin-left: -20px; margin-bottom: -30px;">
+                <svg viewBox="0 0 200 100" style="width: 100%; fill: #FFFFFF;">
+                    <circle cx="30" cy="50" r="3"/><circle cx="60" cy="30" r="3"/><circle cx="90" cy="70" r="3"/><circle cx="120" cy="40" r="3"/><circle cx="150" cy="60" r="3"/><circle cx="180" cy="30" r="3"/>
+                    <path d="M30 50 Q 75 10 120 40 T 180 30" fill="none" stroke="#C99B3B" stroke-width="2" stroke-dasharray="4 4"/>
+                </svg>
+            </div>
+        </aside>
+        
+        <div class="main-area">
         <!-- Header -->
         <header class="header">
             <div class="header-left">
@@ -22,6 +67,11 @@
                 <h1 class="title">Weather Data</h1>
             </div>
             <div class="header-right">
+                <button class="theme-toggle" id="themeToggle" title="Toggle theme">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                    </svg>
+                </button>
                 <button class="btn-copy" id="copyAllBtn">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
@@ -37,8 +87,10 @@
             <button class="tab active" data-tab="dashboard">Dashboard</button>
             <button class="tab" data-tab="metar">METAR</button>
             <button class="tab" data-tab="taf">TAF</button>
+            <button class="tab" data-tab="trend">Trend</button>
             <button class="tab" data-tab="satellite">Satellite</button>
-            <button class="tab" data-tab="input">Data Input</button>
+            <button class="tab" data-tab="data">Data</button>
+            <button class="tab" data-tab="archive">Archive</button>
         </nav>
 
         <!-- Main Content -->
@@ -54,39 +106,182 @@
             <!-- METAR Detail -->
             <div class="tab-content active" id="tab-metar">
                 <div class="detail-header">
-                    <h2>METAR Detailed View</h2>
-                    <span class="station-badge">EGLC</span>
+                    <h2>METAR</h2>
                 </div>
-                <div class="detail-grid">
-                    <div class="detail-card">
-                        <h3>Raw METAR</h3>
-                        <div class="raw-display" id="detailMetarRaw">Loading...</div>
-                    </div>
-                    <div class="detail-card">
-                        <h3>Flight Category</h3>
-                        <div class="condition-badges">
-                            <span class="badge" id="metarFltCat">--</span>
+                <div class="metar-windows">
+                    <div class="metar-window main-station">
+                        <div class="metar-window-header">
+                            <div class="station-info">
+                                <span class="station-flag">🇬🇧</span>
+                                <span class="station-name" id="mainStationName">EGLC</span>
+                                <span class="station-label">MAIN</span>
+                            </div>
+                            <button class="refresh-btn" id="refreshMainMetar">↻</button>
+                        </div>
+                        <div class="metar-window-body">
+                            <div class="metar-time" id="mainMetarTime">--:--</div>
+                            <div class="metar-raw" id="mainMetarRaw">Loading...</div>
+                            <div class="metar-details-grid">
+                                <div class="metar-detail-item">
+                                    <span class="detail-label">Wind</span>
+                                    <span class="detail-value" id="mainMetarWind">--</span>
+                                </div>
+                                <div class="metar-detail-item">
+                                    <span class="detail-label">Visibility</span>
+                                    <span class="detail-value" id="mainMetarVis">--</span>
+                                </div>
+                                <div class="metar-detail-item">
+                                    <span class="detail-label">Clouds</span>
+                                    <span class="detail-value" id="mainMetarClouds">--</span>
+                                </div>
+                                <div class="metar-detail-item">
+                                    <span class="detail-label">Temp/Dew</span>
+                                    <span class="detail-value" id="mainMetarTemp">--</span>
+                                </div>
+                                <div class="metar-detail-item">
+                                    <span class="detail-label">QNH</span>
+                                    <span class="detail-value" id="mainMetarQnh">--</span>
+                                </div>
+                                <div class="metar-detail-item">
+                                    <span class="detail-label">Flight Cat</span>
+                                    <span class="detail-value badge" id="mainMetarCat">--</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
-                    <div class="detail-card wide">
-                        <h3>Decoded METAR</h3>
-                        <div class="decoded-grid" id="metarDecoded">
-                            <div class="decoded-item"><span class="label">Station</span><span class="value" id="decStation">--</span></div>
-                            <div class="decoded-item"><span class="label">Time</span><span class="value" id="decTime">--</span></div>
-                            <div class="decoded-item"><span class="label">Wind</span><span class="value" id="decWind">--</span></div>
-                            <div class="decoded-item"><span class="label">Visibility</span><span class="value" id="decVisibility">--</span></div>
-                            <div class="decoded-item"><span class="label">Clouds</span><span class="value" id="decClouds">--</span></div>
-                            <div class="decoded-item"><span class="label">Temp</span><span class="value" id="decTemp">--</span></div>
-                            <div class="decoded-item"><span class="label">Dewpoint</span><span class="value" id="decDewp">--</span></div>
-                            <div class="decoded-item"><span class="label">Altimeter</span><span class="value" id="decAltim">--</span></div>
+                    
+                    <div class="metar-window">
+                        <div class="metar-window-header">
+                            <div class="station-info">
+                                <span class="station-flag">🇬🇧</span>
+                                <span class="station-name">EGTE</span>
+                                <span class="station-location">Exeter</span>
+                            </div>
+                            <button class="refresh-btn" id="refreshEgteMetar">↻</button>
+                        </div>
+                        <div class="metar-window-body">
+                            <div class="metar-time" id="egteMetarTime">--:--</div>
+                            <div class="metar-raw" id="egteMetarRaw">Loading...</div>
+                            <div class="metar-details-grid">
+                                <div class="metar-detail-item">
+                                    <span class="detail-label">Wind</span>
+                                    <span class="detail-value" id="egteMetarWind">--</span>
+                                </div>
+                                <div class="metar-detail-item">
+                                    <span class="detail-label">Visibility</span>
+                                    <span class="detail-value" id="egteMetarVis">--</span>
+                                </div>
+                                <div class="metar-detail-item">
+                                    <span class="detail-label">Clouds</span>
+                                    <span class="detail-value" id="egteMetarClouds">--</span>
+                                </div>
+                                <div class="metar-detail-item">
+                                    <span class="detail-label">Temp/Dew</span>
+                                    <span class="detail-value" id="egteMetarTemp">--</span>
+                                </div>
+                                <div class="metar-detail-item">
+                                    <span class="detail-label">QNH</span>
+                                    <span class="detail-value" id="egteMetarQnh">--</span>
+                                </div>
+                                <div class="metar-detail-item">
+                                    <span class="detail-label">Flight Cat</span>
+                                    <span class="detail-value badge" id="egteMetarCat">--</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="metar-window">
+                        <div class="metar-window-header">
+                            <div class="station-info">
+                                <span class="station-flag">🇬🇧</span>
+                                <span class="station-name">EGFF</span>
+                                <span class="station-location">Cardiff</span>
+                            </div>
+                            <button class="refresh-btn" id="refreshEgffMetar">↻</button>
+                        </div>
+                        <div class="metar-window-body">
+                            <div class="metar-time" id="egffMetarTime">--:--</div>
+                            <div class="metar-raw" id="egffMetarRaw">Loading...</div>
+                            <div class="metar-details-grid">
+                                <div class="metar-detail-item">
+                                    <span class="detail-label">Wind</span>
+                                    <span class="detail-value" id="egffMetarWind">--</span>
+                                </div>
+                                <div class="metar-detail-item">
+                                    <span class="detail-label">Visibility</span>
+                                    <span class="detail-value" id="egffMetarVis">--</span>
+                                </div>
+                                <div class="metar-detail-item">
+                                    <span class="detail-label">Clouds</span>
+                                    <span class="detail-value" id="egffMetarClouds">--</span>
+                                </div>
+                                <div class="metar-detail-item">
+                                    <span class="detail-label">Temp/Dew</span>
+                                    <span class="detail-value" id="egffMetarTemp">--</span>
+                                </div>
+                                <div class="metar-detail-item">
+                                    <span class="detail-label">QNH</span>
+                                    <span class="detail-value" id="egffMetarQnh">--</span>
+                                </div>
+                                <div class="metar-detail-item">
+                                    <span class="detail-label">Flight Cat</span>
+                                    <span class="detail-value badge" id="egffMetarCat">--</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
-                <div class="detail-card wide" style="margin-top: 16px;">
-                    <h3>METAR History (Last 6 Hours)</h3>
-                    <div id="metarHistory" style="max-height: 300px; overflow-y: auto;">
-                        <div class="metar-history-item" style="padding: 8px; background: var(--bg-tertiary); border-radius: 4px; margin-bottom: 8px;">
-                            Loading history...
+                <div class="metar-history-all">
+                    <div class="metar-history-section">
+                        <h3 class="section-title">METAR History <span id="historyStationName">(EGLC)</span></h3>
+                        <div class="metar-history-grid" id="mainMetarHistoryGrid">
+                            <div class="metar-history-item">
+                                <div class="history-header">
+                                    <span class="history-time">Loading...</span>
+                                    <span class="badge">--</span>
+                                </div>
+                                <div class="history-raw">--</div>
+                                <div class="history-details">
+                                    <span>Wind: --</span>
+                                    <span>Vis: --</span>
+                                    <span>Temp: --</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="metar-history-section">
+                        <h3 class="section-title">METAR History <span>(EGTE)</span></h3>
+                        <div class="metar-history-grid" id="egteMetarHistoryGrid">
+                            <div class="metar-history-item">
+                                <div class="history-header">
+                                    <span class="history-time">Loading...</span>
+                                    <span class="badge">--</span>
+                                </div>
+                                <div class="history-raw">--</div>
+                                <div class="history-details">
+                                    <span>Wind: --</span>
+                                    <span>Vis: --</span>
+                                    <span>Temp: --</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="metar-history-section">
+                        <h3 class="section-title">METAR History <span>(EGFF)</span></h3>
+                        <div class="metar-history-grid" id="egffMetarHistoryGrid">
+                            <div class="metar-history-item">
+                                <div class="history-header">
+                                    <span class="history-time">Loading...</span>
+                                    <span class="badge">--</span>
+                                </div>
+                                <div class="history-raw">--</div>
+                                <div class="history-details">
+                                    <span>Wind: --</span>
+                                    <span>Vis: --</span>
+                                    <span>Temp: --</span>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -113,29 +308,60 @@
             <!-- Satellite Detail -->
             <div class="tab-content" id="tab-satellite">
                 <div class="detail-header">
-                    <h2>Satellite View</h2>
-                    <span class="station-badge">EGLC Area</span>
+                    <h2>Satellite Sounding Data</h2>
+                    <div class="satellite-update-info">
+                        <span class="update-label">Last update:</span>
+                        <span class="update-date" id="satelliteUpdateDate">--</span>
+                    </div>
                 </div>
-                <div class="detail-grid">
-                    <div class="detail-card wide">
-                        <h3>Satellite Image</h3>
-                        <div class="satellite-large">
-                            <div class="cloud-layer layer-1"></div>
-                            <div class="cloud-layer layer-2"></div>
-                            <div class="cloud-layer layer-3"></div>
-                            <div class="map-overlay">
-                                <div class="location-marker" style="top: 50%; left: 50%;">
-                                    <div class="marker-dot"></div>
-                                    <span class="marker-label">EGLC</span>
-                                </div>
-                            </div>
-                        </div>
+                
+                <div class="satellite-input-section">
+                    <div class="satellite-input-header">
+                        <h3>Input Data</h3>
+                        <button class="btn-primary" id="saveSatelliteData">Update Data</button>
+                    </div>
+                    <textarea class="satellite-textarea" id="satelliteDataInput" placeholder="Paste sounding data here...
+Format: Pressure  Altitude  Temp  Dewpoint  RH  MixRatio  WindDir  WindSpeed  Theta  ThetaE  ThetaW"></textarea>
+                </div>
+                
+                <div class="satellite-filter-section">
+                    <h3>Pressure Levels</h3>
+                    <div class="pressure-filters">
+                        <label>From: <input type="number" class="pressure-input" id="pressureFrom" value="1000" step="10"></label>
+                        <label>To: <input type="number" class="pressure-input" id="pressureTo" value="700" step="10"></label>
+                        <button class="btn-secondary" id="applyPressureFilter">Apply Filter</button>
+                    </div>
+                </div>
+                
+                <div class="satellite-data-section">
+                    <h3>Sounding Data <span id="pressureRangeLabel">(1000 - 700 hPa)</span></h3>
+                    <div class="satellite-table-container">
+                        <table class="satellite-table">
+                            <thead>
+                                <tr>
+                                    <th>Press (hPa)</th>
+                                    <th>Alt (m)</th>
+                                    <th>Temp (°C)</th>
+                                    <th>Dewpt (°C)</th>
+                                    <th>RH (%)</th>
+                                    <th>MixR</th>
+                                    <th>WDir (°)</th>
+                                    <th>WSpd (kt)</th>
+                                    <th>Theta</th>
+                                    <th>ThetaE</th>
+                                    <th>ThetaW</th>
+                                </tr>
+                            </thead>
+                            <tbody id="satelliteDataTable">
+                                <tr><td colspan="11" style="text-align: center; color: var(--text-muted);">No data available</td></tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>
 
             <!-- Data Input -->
-            <div class="tab-content" id="tab-input">
+            <div class="tab-content" id="tab-data">
                 <div class="detail-header">
                     <h2>Weather Data Input</h2>
                     <div class="header-actions">
@@ -193,6 +419,69 @@
                     <div class="summary-card">
                         <span class="summary-label">Rows</span>
                         <span class="summary-value" id="rowCount">1</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Trend -->
+            <div class="tab-content" id="tab-trend">
+                <div class="detail-header">
+                    <h2>Trend Analysis</h2>
+                    <span class="station-badge">EGLC</span>
+                </div>
+                <div class="detail-grid">
+                    <div class="detail-card wide">
+                        <h3>Trend Forecast</h3>
+                        <div class="trend-chart" style="height: 200px; background: var(--bg-input); border-radius: 12px; display: flex; align-items: center; justify-content: center;">
+                            <span style="color: var(--text-muted);">Trend chart visualization</span>
+                        </div>
+                    </div>
+                    <div class="detail-card wide">
+                        <h3>Trend Information</h3>
+                        <div class="decoded-grid">
+                            <div class="decoded-item"><span class="label">Trend Type</span><span class="value" id="trendType">BECMG</span></div>
+                            <div class="decoded-item"><span class="label">Valid From</span><span class="value" id="trendFrom">--</span></div>
+                            <div class="decoded-item"><span class="label">Valid To</span><span class="value" id="trendTo">--</span></div>
+                            <div class="decoded-item"><span class="label">Change</span><span class="value" id="trendChange">--</span></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Archive -->
+            <div class="tab-content" id="tab-archive">
+                <div class="detail-header">
+                    <h2>Archive</h2>
+                    <div class="header-actions">
+                        <button class="btn-secondary" id="exportBtn">Export CSV</button>
+                    </div>
+                </div>
+                <div class="detail-grid">
+                    <div class="detail-card wide">
+                        <h3>Historical Data</h3>
+                        <div class="archive-list" style="max-height: 400px; overflow-y: auto;">
+                            <div class="archive-item" style="padding: 12px; background: var(--bg-input); border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <div style="font-weight: 700; color: var(--text-dark);">2026-02-20</div>
+                                    <div style="font-size: 12px; color: var(--text-muted);">EGLC - London City</div>
+                                </div>
+                                <button class="btn-secondary" style="height: 30px; padding: 0 12px; font-size: 11px;">View</button>
+                            </div>
+                            <div class="archive-item" style="padding: 12px; background: var(--bg-input); border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <div style="font-weight: 700; color: var(--text-dark);">2026-02-19</div>
+                                    <div style="font-size: 12px; color: var(--text-muted);">EGLC - London City</div>
+                                </div>
+                                <button class="btn-secondary" style="height: 30px; padding: 0 12px; font-size: 11px;">View</button>
+                            </div>
+                            <div class="archive-item" style="padding: 12px; background: var(--bg-input); border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center;">
+                                <div>
+                                    <div style="font-weight: 700; color: var(--text-dark);">2026-02-18</div>
+                                    <div style="font-size: 12px; color: var(--text-muted);">EGLC - London City</div>
+                                </div>
+                                <button class="btn-secondary" style="height: 30px; padding: 0 12px; font-size: 11px;">View</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -256,24 +545,26 @@
                         <h2>Satellite</h2>
                         <button class="refresh-btn" id="refreshSatellite">↻</button>
                     </div>
-                    <button class="copy-btn" data-copy="satellite">📋</button>
                 </div>
                 <div class="window-content">
-                    <div class="satellite-visual">
-                        <div class="cloud-layer layer-1"></div>
-                        <div class="cloud-layer layer-2"></div>
-                        <div class="location-marker" style="top: 50%; left: 50%;">
-                            <div class="marker-dot"></div>
-                            <span class="marker-label">EGLC</span>
+                    <div class="satellite-update-badge" id="satelliteDashDate">
+                        <span class="dash-date-label">Updated:</span>
+                        <span class="dash-date-value">--</span>
+                    </div>
+                    <div class="satellite-dash-table" id="satelliteDashTable">
+                        <div class="satellite-dash-row">
+                            <span class="dash-press">--</span>
+                            <span class="dash-temp">--</span>
+                            <span class="dash-wind">--</span>
                         </div>
                     </div>
-                    <textarea class="raw-input" id="satelliteInput" placeholder="Satellite notes...">Cloud cover over London City area</textarea>
                 </div>
             </div>
         </div>
 
         <!-- Toast -->
         <div class="toast" id="toast"></div>
+        </div>
     </div>
 
     <script src="script.js"></script>

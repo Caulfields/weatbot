@@ -1,24 +1,106 @@
 document.addEventListener('DOMContentLoaded', function() {
-    const STATION = 'EGLC';
+    let currentStation = 'EGLC';
+    let currentLocation = 'london';
+    let currentTimezone = 'Europe/London';
     const copyAllBtn = document.getElementById('copyAllBtn');
     const toast = document.getElementById('toast');
+    
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+    updateThemeIcon(savedTheme);
+    
+    document.getElementById('themeToggle').addEventListener('click', function() {
+        const currentTheme = document.documentElement.getAttribute('data-theme');
+        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        document.documentElement.setAttribute('data-theme', newTheme);
+        localStorage.setItem('theme', newTheme);
+        updateThemeIcon(newTheme);
+    });
+    
+    function updateThemeIcon(theme) {
+        const toggle = document.getElementById('themeToggle');
+        if (theme === 'dark') {
+            toggle.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>';
+        } else {
+            toggle.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+        }
+    }
+    
+    const sidebar = document.querySelector('.sidebar');
+    const sidebarToggle = document.getElementById('sidebarToggle');
+    
+    const sidebarCollapsed = localStorage.getItem('sidebarCollapsed') === 'true';
+    if (sidebarCollapsed) {
+        sidebar.classList.add('collapsed');
+    }
+    
+    sidebarToggle.addEventListener('click', function() {
+        sidebar.classList.toggle('collapsed');
+        localStorage.setItem('sidebarCollapsed', sidebar.classList.contains('collapsed'));
+    });
+    
+    const locations = {
+        london: { station: 'EGLC', timezone: 'Europe/London', name: 'London' },
+        paris: { station: 'LFPG', timezone: 'Europe/Paris', name: 'Paris' }
+    };
     
     // Track last update times for auto-update detection
     let lastMetarTime = null;
     let lastTafTime = null;
     let isFirstLoad = true;
 
-    // London Clock
-    function updateLondonTime() {
+    // Location Clock
+    function updateTime() {
         const now = new Date();
-        const londonTime = new Date(now.toLocaleString('en-US', { timeZone: 'Europe/London' }));
+        const localTime = new Date(now.toLocaleString('en-US', { timeZone: currentTimezone }));
         document.getElementById('londonTime').textContent = 
-            String(londonTime.getHours()).padStart(2, '0') + ':' +
-            String(londonTime.getMinutes()).padStart(2, '0') + ':' +
-            String(londonTime.getSeconds()).padStart(2, '0');
+            String(localTime.getHours()).padStart(2, '0') + ':' +
+            String(localTime.getMinutes()).padStart(2, '0') + ':' +
+            String(localTime.getSeconds()).padStart(2, '0');
     }
-    updateLondonTime();
-    setInterval(updateLondonTime, 1000);
+    updateTime();
+    setInterval(updateTime, 1000);
+    
+    // Location Switching
+    document.querySelectorAll('.location-btn').forEach(btn => {
+        btn.addEventListener('click', function() {
+            const loc = this.dataset.location;
+            if (loc === currentLocation) return;
+            
+            document.querySelectorAll('.location-btn').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            
+            currentLocation = loc;
+            currentStation = locations[loc].station;
+            currentTimezone = locations[loc].timezone;
+            
+            // Update clock label
+            document.querySelector('.clock-label').textContent = locations[loc].name;
+            
+            // Update station badges
+            document.querySelectorAll('.station-badge, .station-name').forEach(el => {
+                el.textContent = currentStation;
+            });
+            
+            // Update METAR tab main station
+            const mainStationNameEl = document.getElementById('mainStationName');
+            if (mainStationNameEl) mainStationNameEl.textContent = currentStation;
+            
+            const historyStationNameEl = document.getElementById('historyStationName');
+            if (historyStationNameEl) historyStationNameEl.textContent = '(' + currentStation + ')';
+            
+            // Fetch all METARs for METAR tab
+            fetchAllMetars();
+            
+            // Reset and refetch data
+            lastMetarTime = null;
+            lastTafTime = null;
+            fetchMetar(true);
+            fetchTaf(true);
+            
+            showToast('Switched to ' + locations[loc].name);
+        });
+    });
 
     // Tab Switching
     const windowsRow = document.querySelector('.windows-row');
@@ -28,7 +110,11 @@ document.addEventListener('DOMContentLoaded', function() {
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
         document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
         document.querySelector('.tab[data-tab="' + tabId + '"]').classList.add('active');
-        document.getElementById('tab-' + tabId).classList.add('active');
+        
+        const tabContent = document.getElementById('tab-' + tabId);
+        if (tabContent) {
+            tabContent.classList.add('active');
+        }
         
         // Show windows-row only on Dashboard tab, show main-content on others
         if (tabId === 'dashboard') {
@@ -72,49 +158,139 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
-    // Fetch METAR History (last 6 hours)
-    async function fetchMetarHistory() {
+    // Fetch METAR for specific station
+    async function fetchMetarForStation(station, prefix) {
         try {
             const cacheBuster = Date.now();
-            const res = await fetch('https://corsproxy.io/?' + encodeURIComponent('https://aviationweather.gov/api/data/metar?ids=' + STATION + '&format=json&hours=6&cache=' + cacheBuster));
+            const res = await fetch('https://corsproxy.io/?' + encodeURIComponent('https://aviationweather.gov/api/data/metar?ids=' + station + '&format=json&cache=' + cacheBuster));
             const data = await res.json();
             
-            const historyContainer = document.getElementById('metarHistory');
-            historyContainer.innerHTML = '';
+            if (data && data.length > 0) {
+                data.sort((a, b) => new Date(b.reportTime) - new Date(a.reportTime));
+                const m = data[0];
+                
+                const timeEl = document.getElementById(prefix + 'MetarTime');
+                const rawEl = document.getElementById(prefix + 'MetarRaw');
+                const windEl = document.getElementById(prefix + 'MetarWind');
+                const visEl = document.getElementById(prefix + 'MetarVis');
+                const cloudsEl = document.getElementById(prefix + 'MetarClouds');
+                const tempEl = document.getElementById(prefix + 'MetarTemp');
+                const qnhEl = document.getElementById(prefix + 'MetarQnh');
+                const catEl = document.getElementById(prefix + 'MetarCat');
+                
+                if (timeEl) timeEl.textContent = m.reportTime ? new Date(m.reportTime).toUTCString().slice(0, -7) : '--';
+                if (rawEl) rawEl.textContent = m.rawOb || 'No data';
+                
+                const wind = (m.wdir || 'VAR') + '° @ ' + (m.wspd || '--') + 'kt' + (m.wgst ? ' G' + m.wgst + 'kt' : '');
+                if (windEl) windEl.textContent = wind;
+                if (visEl) visEl.textContent = (m.vis || '--') + ' SM';
+                
+                let clouds = '--';
+                if (m.clouds && m.clouds.length > 0) {
+                    clouds = m.clouds.map(c => (c.cover || 'CLR') + (c.base ? ' ' + c.base + '00ft' : '')).join(' ');
+                }
+                if (cloudsEl) cloudsEl.textContent = clouds;
+                if (tempEl) tempEl.textContent = (m.temp || '--') + '° / ' + (m.dwpt || '--') + '°';
+                if (qnhEl) qnhEl.textContent = m.altim ? m.altim.toFixed(2) + ' in' : '--';
+                
+                const cat = m.fltCat || 'VFR';
+                if (catEl) {
+                    catEl.textContent = cat;
+                    catEl.className = 'detail-value badge ' + cat.toLowerCase();
+                }
+            }
+        } catch (e) {
+            console.error('Failed to fetch METAR for ' + station, e);
+        }
+    }
+    
+    async function fetchAllMetars() {
+        await Promise.all([
+            fetchMetarForStation(currentStation, 'main'),
+            fetchMetarForStation('EGTE', 'egte'),
+            fetchMetarForStation('EGFF', 'egff')
+        ]);
+        fetchAllMetarHistory();
+    }
+    
+    async function fetchMetarHistoryForStation(station, containerId) {
+        try {
+            const cacheBuster = Date.now();
+            const res = await fetch('https://corsproxy.io/?' + encodeURIComponent('https://aviationweather.gov/api/data/metar?ids=' + station + '&format=json&hours=6&cache=' + cacheBuster));
+            const data = await res.json();
+            
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            container.innerHTML = '';
             
             if (data && data.length > 0) {
-                // Sort by time, newest first
                 data.sort((a, b) => new Date(b.reportTime) - new Date(a.reportTime));
                 
                 data.forEach(m => {
-                    const raw = m.rawOb || m.metarId || 'No data';
+                    const raw = m.rawOb || 'No data';
                     const time = m.reportTime ? new Date(m.reportTime).toUTCString().slice(0, -7) : '--';
                     const wind = (m.wdir || 'VAR') + '° @ ' + (m.wspd || '--') + 'kt' + (m.wgst ? ' G' + m.wgst + 'kt' : '');
                     const cat = m.fltCat || 'VFR';
                     
                     const item = document.createElement('div');
                     item.className = 'metar-history-item';
-                    item.style.cssText = 'padding: 10px; background: var(--bg-tertiary); border-radius: 6px; margin-bottom: 8px; border-left: 3px solid var(--accent-green);';
-                    item.innerHTML = '<div style="display: flex; justify-content: space-between; margin-bottom: 6px;">' +
-                        '<span style="font-family: monospace; font-size: 12px; color: var(--accent-green); font-weight: 600;">' + time + '</span>' +
-                        '<span class="badge ' + cat.toLowerCase() + '" style="font-size: 11px; padding: 2px 8px;">' + cat + '</span>' +
+                    item.innerHTML = 
+                        '<div class="history-header">' +
+                            '<span class="history-time">' + time + '</span>' +
+                            '<span class="badge ' + cat.toLowerCase() + '">' + cat + '</span>' +
                         '</div>' +
-                        '<div style="font-family: monospace; font-size: 11px; margin-bottom: 6px; word-break: break-all;">' + raw + '</div>' +
-                        '<div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; font-size: 11px; color: var(--text-secondary);">' +
-                        '<span>Wind: ' + wind + '</span>' +
-                        '<span>Vis: ' + (m.vis || '--') + ' SM</span>' +
-                        '<span>Temp: ' + (m.temp || '--') + '°C</span>' +
+                        '<div class="history-raw">' + raw + '</div>' +
+                        '<div class="history-details">' +
+                            '<span>Wind: ' + wind + '</span>' +
+                            '<span>Vis: ' + (m.vis || '--') + ' SM</span>' +
+                            '<span>Temp: ' + (m.temp || '--') + '°C</span>' +
                         '</div>';
-                    historyContainer.appendChild(item);
+                    container.appendChild(item);
                 });
             } else {
-                historyContainer.innerHTML = '<div style="padding: 10px; color: var(--text-secondary);">No historical data available</div>';
+                container.innerHTML = '<div class="metar-history-item"><div class="history-raw">No historical data available</div></div>';
             }
         } catch (e) {
-            console.error('Failed to fetch METAR history:', e);
-            document.getElementById('metarHistory').innerHTML = '<div style="padding: 10px; color: #f87171;">Failed to load history</div>';
+            console.error('Failed to fetch METAR history for ' + station, e);
+            const container = document.getElementById(containerId);
+            if (container) {
+                container.innerHTML = '<div class="metar-history-item"><div class="history-raw" style="color: #f87171;">Failed to load history</div></div>';
+            }
         }
     }
+    
+    async function fetchAllMetarHistory() {
+        await Promise.all([
+            fetchMetarHistoryForStation(currentStation, 'mainMetarHistoryGrid'),
+            fetchMetarHistoryForStation('EGTE', 'egteMetarHistoryGrid'),
+            fetchMetarHistoryForStation('EGFF', 'egffMetarHistoryGrid')
+        ]);
+    }
+    
+    document.getElementById('refreshMainMetar').addEventListener('click', function() {
+        this.textContent = '...';
+        fetchMetarForStation(currentStation, 'main').then(() => {
+            fetchMetarHistoryForStation(currentStation, 'mainMetarHistoryGrid');
+            this.textContent = '↻';
+        });
+    });
+    document.getElementById('refreshEgteMetar').addEventListener('click', function() {
+        this.textContent = '...';
+        fetchMetarForStation('EGTE', 'egte').then(() => {
+            fetchMetarHistoryForStation('EGTE', 'egteMetarHistoryGrid');
+            this.textContent = '↻';
+        });
+    });
+    document.getElementById('refreshEgffMetar').addEventListener('click', function() {
+        this.textContent = '...';
+        fetchMetarForStation('EGFF', 'egff').then(() => {
+            fetchMetarHistoryForStation('EGFF', 'egffMetarHistoryGrid');
+            this.textContent = '↻';
+        });
+    });
+    
+    fetchAllMetars();
+    setInterval(fetchAllMetars, 60 * 1000);
 
     // Fetch METAR
     async function fetchMetar(forceUpdate = false) {
@@ -122,7 +298,7 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             // Add cache-busting parameter and hours parameter to get latest
             const cacheBuster = Date.now();
-            const res = await fetch('https://corsproxy.io/?' + encodeURIComponent('https://aviationweather.gov/api/data/metar?ids=' + STATION + '&format=json&cache=' + cacheBuster));
+            const res = await fetch('https://corsproxy.io/?' + encodeURIComponent('https://aviationweather.gov/api/data/metar?ids=' + currentStation + '&format=json&cache=' + cacheBuster));
             const data = await res.json();
             
             if (data && data.length > 0) {
@@ -157,7 +333,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     
                     // Update Detail view (METAR tab)
                     document.getElementById('detailMetarRaw').textContent = raw;
-                    document.getElementById('decStation').textContent = m.stationId || STATION;
+                    document.getElementById('decStation').textContent = m.stationId || currentStation;
                     document.getElementById('decTime').textContent = m.reportTime ? new Date(m.reportTime).toUTCString().slice(0, -7) : '--';
                     document.getElementById('decWind').textContent = wind;
                     document.getElementById('decVisibility').textContent = (m.vis || '--') + ' SM';
@@ -188,7 +364,7 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             // Add cache-busting parameter
             const cacheBuster = Date.now();
-            const res = await fetch('https://corsproxy.io/?' + encodeURIComponent('https://aviationweather.gov/api/data/taf?ids=' + STATION + '&format=json&cache=' + cacheBuster));
+            const res = await fetch('https://corsproxy.io/?' + encodeURIComponent('https://aviationweather.gov/api/data/taf?ids=' + currentStation + '&format=json&cache=' + cacheBuster));
             const data = await res.json();
             
             if (data && data.length > 0) {
@@ -252,33 +428,25 @@ document.addEventListener('DOMContentLoaded', function() {
     async function checkForUpdates() {
         await fetchMetar();
         await fetchTaf();
-        // Fetch history less frequently (every 2 minutes)
-        if (Date.now() % (2 * 60 * 1000) < 35000) {
-            fetchMetarHistory();
-        }
         isFirstLoad = false;
     }
 
     // Initial fetch
-    fetchMetar(true); // Force update on first load
-    fetchMetarHistory();
-    fetchTaf(true); // Force update on first load
+    fetchMetar(true);
+    fetchTaf(true);
+    fetchAllMetars();
     isFirstLoad = false;
     
-    // Auto-update every 30 seconds to check for new data
+    // Auto-update every 30 seconds
     setInterval(checkForUpdates, 30 * 1000);
+    setInterval(fetchAllMetars, 60 * 1000);
 
     // Refresh buttons
     document.getElementById('refreshMetar').addEventListener('click', function() {
         fetchMetar(true);
-        fetchMetarHistory();
     });
     document.getElementById('refreshTaf').addEventListener('click', function() {
         fetchTaf(true);
-    });
-    document.getElementById('refreshSatellite').addEventListener('click', function() {
-        this.textContent = '...';
-        setTimeout(() => { this.textContent = '↻'; showToast('Satellite refreshed'); }, 500);
     });
 
     // Copy buttons
@@ -288,11 +456,8 @@ document.addEventListener('DOMContentLoaded', function() {
     document.querySelector('[data-copy="taf"]').addEventListener('click', async function() {
         if (await copyToClipboard(document.getElementById('tafInput').value)) showToast('TAF copied!');
     });
-    document.querySelector('[data-copy="satellite"]').addEventListener('click', async function() {
-        if (await copyToClipboard(document.getElementById('satelliteInput').value)) showToast('Satellite copied!');
-    });
     copyAllBtn.addEventListener('click', async function() {
-        const all = '=== METAR ===\n' + document.getElementById('metarInput').value + '\n\n=== TAF ===\n' + document.getElementById('tafInput').value + '\n\n=== SATELLITE ===\n' + document.getElementById('satelliteInput').value;
+        const all = '=== METAR ===\n' + document.getElementById('metarInput').value + '\n\n=== TAF ===\n' + document.getElementById('tafInput').value;
         if (await copyToClipboard(all)) showToast('All data copied!');
     });
 
@@ -315,7 +480,7 @@ document.addEventListener('DOMContentLoaded', function() {
         document.getElementById('rowCount').textContent = c;
     }
     
-    tableBody.addEventListener('click', function(e) {
+tableBody.addEventListener('click', function(e) {
         if (e.target.classList.contains('delete-btn')) {
             e.target.closest('tr').remove();
             updateTableSummary();
@@ -336,4 +501,156 @@ document.addEventListener('DOMContentLoaded', function() {
     });
     
     updateTableSummary();
+
+    // Satellite Data Functions
+    let satelliteData = [];
+    let satelliteUpdateDateStr = localStorage.getItem('satelliteUpdateDate') || null;
+    
+    function loadSatelliteData() {
+        const savedData = localStorage.getItem('satelliteData');
+        if (savedData) {
+            satelliteData = JSON.parse(savedData);
+            document.getElementById('satelliteDataInput').value = savedData;
+        }
+        updateSatelliteDisplay();
+    }
+    
+    function parseSatelliteData(rawText) {
+        const lines = rawText.trim().split('\n');
+        const data = [];
+        
+        lines.forEach(line => {
+            const parts = line.trim().split(/\s+/);
+            if (parts.length >= 11) {
+                const pressure = parseFloat(parts[0]);
+                if (!isNaN(pressure)) {
+                    data.push({
+                        pressure: pressure,
+                        altitude: parseFloat(parts[1]) || 0,
+                        temp: parseFloat(parts[2]) || 0,
+                        dewpt: parseFloat(parts[3]) || 0,
+                        rh: parseFloat(parts[4]) || 0,
+                        mixr: parseFloat(parts[5]) || 0,
+                        wdir: parseFloat(parts[6]) || 0,
+                        wspd: parseFloat(parts[7]) || 0,
+                        theta: parseFloat(parts[8]) || 0,
+                        thetaE: parseFloat(parts[9]) || 0,
+                        thetaW: parseFloat(parts[10]) || 0
+                    });
+                }
+            }
+        });
+        
+        return data;
+    }
+    
+    function updateSatelliteDisplay() {
+        const pressureFrom = parseInt(document.getElementById('pressureFrom').value) || 1000;
+        const pressureTo = parseInt(document.getElementById('pressureTo').value) || 700;
+        
+        const filteredData = satelliteData.filter(d => d.pressure <= pressureFrom && d.pressure >= pressureTo);
+        
+        // Update label
+        document.getElementById('pressureRangeLabel').textContent = '(' + pressureFrom + ' - ' + pressureTo + ' hPa)';
+        
+        // Update Satellite tab table
+        const tableBody = document.getElementById('satelliteDataTable');
+        if (filteredData.length > 0) {
+            tableBody.innerHTML = filteredData.map(d => 
+                '<tr>' +
+                    '<td>' + d.pressure.toFixed(1) + '</td>' +
+                    '<td>' + d.altitude + '</td>' +
+                    '<td>' + d.temp.toFixed(1) + '</td>' +
+                    '<td>' + d.dewpt.toFixed(1) + '</td>' +
+                    '<td>' + d.rh + '</td>' +
+                    '<td>' + d.mixr.toFixed(2) + '</td>' +
+                    '<td>' + d.wdir + '</td>' +
+                    '<td>' + d.wspd.toFixed(1) + '</td>' +
+                    '<td>' + d.theta.toFixed(1) + '</td>' +
+                    '<td>' + d.thetaE.toFixed(1) + '</td>' +
+                    '<td>' + d.thetaW.toFixed(1) + '</td>' +
+                '</tr>'
+            ).join('');
+        } else {
+            tableBody.innerHTML = '<tr><td colspan="11" style="text-align: center; color: var(--text-muted);">No data in selected range</td></tr>';
+        }
+        
+        // Update Dashboard
+        const dashTable = document.getElementById('satelliteDashTable');
+        if (filteredData.length > 0) {
+            dashTable.innerHTML = filteredData.map(d => 
+                '<div class="satellite-dash-row">' +
+                    '<span class="dash-press">' + d.pressure.toFixed(0) + ' hPa</span>' +
+                    '<span class="dash-temp">' + d.temp.toFixed(1) + '°C</span>' +
+                    '<span class="dash-wind">' + d.wdir + '°/' + d.wspd.toFixed(0) + 'kt</span>' +
+                '</div>'
+            ).join('');
+        } else {
+            dashTable.innerHTML = '<div class="satellite-dash-row"><span class="dash-press">--</span><span class="dash-temp">--</span><span class="dash-wind">--</span></div>';
+        }
+        
+        // Update date display
+        updateSatelliteDateDisplay();
+    }
+    
+    function updateSatelliteDateDisplay() {
+        const today = new Date().toISOString().split('T')[0];
+        const yesterday = new Date(Date.now() - 86400000).toISOString().split('T')[0];
+        
+        const dateEl = document.getElementById('satelliteUpdateDate');
+        const dashDateEl = document.getElementById('satelliteDashDate');
+        
+        if (satelliteUpdateDateStr) {
+            const displayDate = satelliteUpdateDateStr;
+            
+            dateEl.textContent = displayDate;
+            dashDateEl.querySelector('.dash-date-value').textContent = displayDate;
+            
+            if (satelliteUpdateDateStr === yesterday || satelliteUpdateDateStr < yesterday) {
+                dateEl.classList.add('stale');
+                dashDateEl.classList.add('stale');
+            } else {
+                dateEl.classList.remove('stale');
+                dashDateEl.classList.remove('stale');
+            }
+        } else {
+            dateEl.textContent = 'Never';
+            dateEl.classList.add('stale');
+            dashDateEl.querySelector('.dash-date-value').textContent = 'Never';
+            dashDateEl.classList.add('stale');
+        }
+    }
+    
+    // Save Satellite Data
+    document.getElementById('saveSatelliteData').addEventListener('click', function() {
+        const rawText = document.getElementById('satelliteDataInput').value;
+        satelliteData = parseSatelliteData(rawText);
+        
+        localStorage.setItem('satelliteData', rawText);
+        
+        const today = new Date().toISOString().split('T')[0];
+        satelliteUpdateDateStr = today;
+        localStorage.setItem('satelliteUpdateDate', today);
+        
+        updateSatelliteDisplay();
+        showToast('Satellite data updated!');
+    });
+    
+    // Apply Pressure Filter
+    document.getElementById('applyPressureFilter').addEventListener('click', function() {
+        updateSatelliteDisplay();
+    });
+    
+    // Refresh Satellite
+    document.getElementById('refreshSatellite').addEventListener('click', function() {
+        this.textContent = '...';
+        updateSatelliteDisplay();
+        setTimeout(() => {
+            this.textContent = '↻';
+            showToast('Satellite data refreshed');
+        }, 500);
+    });
+    
+    // Load saved satellite data
+    loadSatelliteData();
 });
