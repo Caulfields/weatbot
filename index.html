@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Weather Data</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <div class="london-clock">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="10"/>
+                        <polyline points="12 6 12 12 16 14"/>
+                    </svg>
+                    <span class="clock-label">London</span>
+                    <span class="clock-time" id="londonTime">--:--:--</span>
+                </div>
+                <h1 class="title">Weather Data</h1>
+            </div>
+            <div class="header-right">
+                <button class="btn-copy" id="copyAllBtn">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                    </svg>
+                    Copy All
+                </button>
+            </div>
+        </header>
+
+        <!-- Tabs -->
+        <nav class="tabs">
+            <button class="tab active" data-tab="dashboard">Dashboard</button>
+            <button class="tab" data-tab="metar">METAR</button>
+            <button class="tab" data-tab="taf">TAF</button>
+            <button class="tab" data-tab="satellite">Satellite</button>
+            <button class="tab" data-tab="input">Data Input</button>
+        </nav>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Dashboard -->
+            <div class="tab-content" id="tab-dashboard">
+                <div class="detail-header">
+                    <h2>Dashboard Overview</h2>
+                    <span class="station-badge">EGLC</span>
+                </div>
+            </div>
+
+            <!-- METAR Detail -->
+            <div class="tab-content active" id="tab-metar">
+                <div class="detail-header">
+                    <h2>METAR Detailed View</h2>
+                    <span class="station-badge">EGLC</span>
+                </div>
+                <div class="detail-grid">
+                    <div class="detail-card">
+                        <h3>Raw METAR</h3>
+                        <div class="raw-display" id="detailMetarRaw">Loading...</div>
+                    </div>
+                    <div class="detail-card">
+                        <h3>Flight Category</h3>
+                        <div class="condition-badges">
+                            <span class="badge" id="metarFltCat">--</span>
+                        </div>
+                    </div>
+                    <div class="detail-card wide">
+                        <h3>Decoded METAR</h3>
+                        <div class="decoded-grid" id="metarDecoded">
+                            <div class="decoded-item"><span class="label">Station</span><span class="value" id="decStation">--</span></div>
+                            <div class="decoded-item"><span class="label">Time</span><span class="value" id="decTime">--</span></div>
+                            <div class="decoded-item"><span class="label">Wind</span><span class="value" id="decWind">--</span></div>
+                            <div class="decoded-item"><span class="label">Visibility</span><span class="value" id="decVisibility">--</span></div>
+                            <div class="decoded-item"><span class="label">Clouds</span><span class="value" id="decClouds">--</span></div>
+                            <div class="decoded-item"><span class="label">Temp</span><span class="value" id="decTemp">--</span></div>
+                            <div class="decoded-item"><span class="label">Dewpoint</span><span class="value" id="decDewp">--</span></div>
+                            <div class="decoded-item"><span class="label">Altimeter</span><span class="value" id="decAltim">--</span></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="detail-card wide" style="margin-top: 16px;">
+                    <h3>METAR History (Last 6 Hours)</h3>
+                    <div id="metarHistory" style="max-height: 300px; overflow-y: auto;">
+                        <div class="metar-history-item" style="padding: 8px; background: var(--bg-tertiary); border-radius: 4px; margin-bottom: 8px;">
+                            Loading history...
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAF Detail -->
+            <div class="tab-content" id="tab-taf">
+                <div class="detail-header">
+                    <h2>TAF Detailed View</h2>
+                    <span class="station-badge">EGLC</span>
+                </div>
+                <div class="detail-grid">
+                    <div class="detail-card wide">
+                        <h3>Raw TAF</h3>
+                        <div class="raw-display" id="detailTafRaw">Loading...</div>
+                    </div>
+                    <div class="detail-card wide">
+                        <h3>Forecast Periods</h3>
+                        <div class="taf-periods" id="tafPeriods"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Satellite Detail -->
+            <div class="tab-content" id="tab-satellite">
+                <div class="detail-header">
+                    <h2>Satellite View</h2>
+                    <span class="station-badge">EGLC Area</span>
+                </div>
+                <div class="detail-grid">
+                    <div class="detail-card wide">
+                        <h3>Satellite Image</h3>
+                        <div class="satellite-large">
+                            <div class="cloud-layer layer-1"></div>
+                            <div class="cloud-layer layer-2"></div>
+                            <div class="cloud-layer layer-3"></div>
+                            <div class="map-overlay">
+                                <div class="location-marker" style="top: 50%; left: 50%;">
+                                    <div class="marker-dot"></div>
+                                    <span class="marker-label">EGLC</span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Data Input -->
+            <div class="tab-content" id="tab-input">
+                <div class="detail-header">
+                    <h2>Weather Data Input</h2>
+                    <div class="header-actions">
+                        <button class="btn-secondary" id="addRowBtn">+ Add Row</button>
+                        <button class="btn-primary" id="saveDataBtn">Save Data</button>
+                    </div>
+                </div>
+                <div class="table-container">
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Date</th>
+                                <th>Time (Z)</th>
+                                <th>Wind Dir</th>
+                                <th>Wind Speed</th>
+                                <th>Gust</th>
+                                <th>Visibility</th>
+                                <th>Cloud Base</th>
+                                <th>Temp</th>
+                                <th>Dewpoint</th>
+                                <th>Altimeter</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="inputTableBody">
+                            <tr>
+                                <td><input type="date" class="table-input" value="2026-02-20"></td>
+                                <td><input type="time" class="table-input" value="12:00"></td>
+                                <td><input type="number" class="table-input" value="270"></td>
+                                <td><input type="number" class="table-input" value="12"></td>
+                                <td><input type="number" class="table-input" value="18"></td>
+                                <td><input type="number" class="table-input" value="10"></td>
+                                <td><input type="number" class="table-input" value="4500"></td>
+                                <td><input type="number" class="table-input" value="15"></td>
+                                <td><input type="number" class="table-input" value="8"></td>
+                                <td><input type="number" class="table-input" value="30.12" step="0.01"></td>
+                                <td><button class="delete-btn">×</button></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="table-summary">
+                    <div class="summary-card">
+                        <span class="summary-label">Avg Wind</span>
+                        <span class="summary-value" id="avgWind">12 kt</span>
+                    </div>
+                    <div class="summary-card">
+                        <span class="summary-label">Avg Temp</span>
+                        <span class="summary-value" id="avgTemp">15°C</span>
+                    </div>
+                    <div class="summary-card">
+                        <span class="summary-label">Min Visibility</span>
+                        <span class="summary-value" id="minVis">10 SM</span>
+                    </div>
+                    <div class="summary-card">
+                        <span class="summary-label">Rows</span>
+                        <span class="summary-value" id="rowCount">1</span>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- Quick View Windows -->
+        <div class="windows-row">
+            <!-- METAR -->
+            <div class="window">
+                <div class="window-header">
+                    <div class="window-title">
+                        <span class="window-icon metar">M</span>
+                        <h2>METAR</h2>
+                        <button class="refresh-btn" id="refreshMetar">↻</button>
+                    </div>
+                    <button class="copy-btn" data-copy="metar">📋</button>
+                </div>
+                <div class="window-content">
+                    <div class="station-header">
+                        <span class="station-name">EGLC</span>
+                        <span class="station-time" id="metarTime">Loading...</span>
+                    </div>
+                    <div class="metar-text" id="metarText">Loading...</div>
+                    <div class="metar-details">
+                        <div class="detail-row"><span>Wind</span><span id="metarWind">--</span></div>
+                        <div class="detail-row"><span>Visibility</span><span id="metarVisibility">--</span></div>
+                        <div class="detail-row"><span>Clouds</span><span id="metarClouds">--</span></div>
+                        <div class="detail-row"><span>Temp/Dew</span><span id="metarTemp">--</span></div>
+                        <div class="detail-row"><span>Altimeter</span><span id="metarAltimeter">--</span></div>
+                    </div>
+                    <textarea class="raw-input" id="metarInput" placeholder="METAR..."></textarea>
+                </div>
+            </div>
+
+            <!-- TAF -->
+            <div class="window">
+                <div class="window-header">
+                    <div class="window-title">
+                        <span class="window-icon taf">T</span>
+                        <h2>TAF</h2>
+                        <button class="refresh-btn" id="refreshTaf">↻</button>
+                    </div>
+                    <button class="copy-btn" data-copy="taf">📋</button>
+                </div>
+                <div class="window-content">
+                    <div class="station-header">
+                        <span class="station-name">EGLC</span>
+                        <span class="station-time" id="tafTime">Loading...</span>
+                    </div>
+                    <div class="taf-text" id="tafText">Loading...</div>
+                    <div class="taf-forecast" id="tafForecast"></div>
+                    <textarea class="raw-input" id="tafInput" placeholder="TAF..."></textarea>
+                </div>
+            </div>
+
+            <!-- Satellite -->
+            <div class="window">
+                <div class="window-header">
+                    <div class="window-title">
+                        <span class="window-icon satellite">S</span>
+                        <h2>Satellite</h2>
+                        <button class="refresh-btn" id="refreshSatellite">↻</button>
+                    </div>
+                    <button class="copy-btn" data-copy="satellite">📋</button>
+                </div>
+                <div class="window-content">
+                    <div class="satellite-visual">
+                        <div class="cloud-layer layer-1"></div>
+                        <div class="cloud-layer layer-2"></div>
+                        <div class="location-marker" style="top: 50%; left: 50%;">
+                            <div class="marker-dot"></div>
+                            <span class="marker-label">EGLC</span>
+                        </div>
+                    </div>
+                    <textarea class="raw-input" id="satelliteInput" placeholder="Satellite notes...">Cloud cover over London City area</textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- Toast -->
+        <div class="toast" id="toast"></div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
