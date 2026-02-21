@@ -423,24 +423,56 @@ Format: Pressure  Altitude  Temp  Dewpoint  RH  MixRatio  WindDir  WindSpeed  Th
             <!-- Trend -->
             <div class="tab-content" id="tab-trend">
                 <div class="detail-header">
-                    <h2>Trend Analysis</h2>
-                    <span class="station-badge">EGLC</span>
+                    <h2>Temperature Trend</h2>
+                    <div class="trend-controls">
+                        <span class="trend-location" id="trendLocationName">London</span>
+                        <button class="refresh-btn" id="refreshTrend">↻</button>
+                    </div>
                 </div>
-                <div class="detail-grid">
-                    <div class="detail-card wide">
-                        <h3>Trend Forecast</h3>
-                        <div class="trend-chart" style="height: 200px; background: var(--bg-input); border-radius: 12px; display: flex; align-items: center; justify-content: center;">
-                            <span style="color: var(--text-muted);">Trend chart visualization</span>
+                
+                <div class="trend-chart-container">
+                    <div class="trend-info-row">
+                        <div class="trend-stat">
+                            <span class="trend-stat-label">Min</span>
+                            <span class="trend-stat-value" id="trendMin">--°C</span>
+                        </div>
+                        <div class="trend-stat">
+                            <span class="trend-stat-label">Max</span>
+                            <span class="trend-stat-value" id="trendMax">--°C</span>
+                        </div>
+                        <div class="trend-stat">
+                            <span class="trend-stat-label">Current</span>
+                            <span class="trend-stat-value" id="trendCurrent">--°C</span>
+                        </div>
+                        <div class="trend-stat">
+                            <span class="trend-stat-label">Updated</span>
+                            <span class="trend-stat-value" id="trendUpdated">--</span>
                         </div>
                     </div>
-                    <div class="detail-card wide">
-                        <h3>Trend Information</h3>
-                        <div class="decoded-grid">
-                            <div class="decoded-item"><span class="label">Trend Type</span><span class="value" id="trendType">BECMG</span></div>
-                            <div class="decoded-item"><span class="label">Valid From</span><span class="value" id="trendFrom">--</span></div>
-                            <div class="decoded-item"><span class="label">Valid To</span><span class="value" id="trendTo">--</span></div>
-                            <div class="decoded-item"><span class="label">Change</span><span class="value" id="trendChange">--</span></div>
-                        </div>
+                    <div class="trend-chart-wrapper">
+                        <canvas id="trendChart"></canvas>
+                    </div>
+                </div>
+                
+                <div class="trend-hourly-data">
+                    <h3>Hourly Data</h3>
+                    <div class="trend-hourly-grid" id="trendHourlyGrid">
+                        <div class="trend-hourly-item">Loading...</div>
+                    </div>
+                    <div class="trend-hourly-table">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th>Time</th>
+                                    <th>Temp</th>
+                                </tr>
+                            </thead>
+                            <tbody id="trendHourlyTableBody">
+                                <tr>
+                                    <td colspan="2">Loading...</td>
+                                </tr>
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             </div>

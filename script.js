@@ -98,6 +98,9 @@ document.addEventListener('DOMContentLoaded', function() {
             fetchMetar(true);
             fetchTaf(true);
             
+            // Update trend chart if function exists
+            if (window.trendFetch) window.trendFetch();
+            
             showToast('Switched to ' + locations[loc].name);
         });
     });
@@ -123,6 +126,17 @@ document.addEventListener('DOMContentLoaded', function() {
         } else {
             windowsRow.style.display = 'none';
             mainContent.style.display = 'block';
+        }
+        
+        // Redraw trend chart when trend tab becomes visible
+        if (tabId === 'trend') {
+            setTimeout(() => {
+                if (trendData && trendData.hourly) {
+                    updateTrendDisplay();
+                } else {
+                    fetchTrendData();
+                }
+            }, 50);
         }
     }
     
@@ -158,12 +172,77 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     }
 
+    const METAR_ENDPOINT = 'https://aviationweather.gov/api/data/metar';
+    const CORS_PROXY = 'https://corsproxy.io/?';
+
+    function buildMetarUrl(params) {
+        const query = new URLSearchParams({ format: 'json', ...params });
+        return METAR_ENDPOINT + '?' + query.toString();
+    }
+
+    function safeText(id, value) {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value;
+        return el;
+    }
+
+    function safeValue(id, value) {
+        const el = document.getElementById(id);
+        if (el) el.value = value;
+        return el;
+    }
+
+    function safeClass(id, value) {
+        const el = document.getElementById(id);
+        if (el) el.className = value;
+        return el;
+    }
+
+    async function fetchAviationWeatherJson(url) {
+        const proxyOnly = location.protocol === 'file:';
+        if (!proxyOnly) {
+            try {
+                const res = await fetch(url, { cache: 'no-store' });
+                if (res.ok) {
+                    if (res.status === 204) return [];
+                    const text = await res.text();
+                    if (!text) return [];
+                    return JSON.parse(text);
+                }
+            } catch (e) {
+                console.warn('Direct METAR fetch failed, trying proxy.', e);
+            }
+        }
+
+        const proxyUrl = CORS_PROXY + encodeURIComponent(url);
+        const proxyRes = await fetch(proxyUrl, { cache: 'no-store' });
+        if (!proxyRes.ok) {
+            throw new Error('METAR request failed: ' + proxyRes.status);
+        }
+        if (proxyRes.status === 204) return [];
+        const proxyText = await proxyRes.text();
+        if (!proxyText) return [];
+        return JSON.parse(proxyText);
+    }
+
+    function formatVisibility(metar) {
+        const vis = metar.visib ?? metar.vis;
+        return vis ?? '--';
+    }
+
+    function formatAltimeter(altim) {
+        const value = Number(altim);
+        if (!Number.isFinite(value)) return '--';
+        if (value >= 100) return Math.round(value) + ' hPa';
+        return value.toFixed(2) + ' inHg';
+    }
+
     // Fetch METAR for specific station
     async function fetchMetarForStation(station, prefix) {
         try {
             const cacheBuster = Date.now();
-            const res = await fetch('https://corsproxy.io/?' + encodeURIComponent('https://aviationweather.gov/api/data/metar?ids=' + station + '&format=json&cache=' + cacheBuster));
-            const data = await res.json();
+            const url = buildMetarUrl({ ids: station, hours: 6, cache: cacheBuster });
+            const data = await fetchAviationWeatherJson(url);
             
             if (data && data.length > 0) {
                 data.sort((a, b) => new Date(b.reportTime) - new Date(a.reportTime));
@@ -181,17 +260,17 @@ document.addEventListener('DOMContentLoaded', function() {
                 if (timeEl) timeEl.textContent = m.reportTime ? new Date(m.reportTime).toUTCString().slice(0, -7) : '--';
                 if (rawEl) rawEl.textContent = m.rawOb || 'No data';
                 
-                const wind = (m.wdir || 'VAR') + '° @ ' + (m.wspd || '--') + 'kt' + (m.wgst ? ' G' + m.wgst + 'kt' : '');
+                const wind = (m.wdir ?? 'VAR') + '° @ ' + (m.wspd ?? '--') + 'kt' + (m.wgst ? ' G' + m.wgst + 'kt' : '');
                 if (windEl) windEl.textContent = wind;
-                if (visEl) visEl.textContent = (m.vis || '--') + ' SM';
+                if (visEl) visEl.textContent = formatVisibility(m) + ' SM';
                 
                 let clouds = '--';
                 if (m.clouds && m.clouds.length > 0) {
                     clouds = m.clouds.map(c => (c.cover || 'CLR') + (c.base ? ' ' + c.base + '00ft' : '')).join(' ');
                 }
                 if (cloudsEl) cloudsEl.textContent = clouds;
-                if (tempEl) tempEl.textContent = (m.temp || '--') + '° / ' + (m.dwpt || '--') + '°';
-                if (qnhEl) qnhEl.textContent = m.altim ? m.altim.toFixed(2) + ' in' : '--';
+                if (tempEl) tempEl.textContent = (m.temp ?? '--') + '° / ' + (m.dwpt ?? '--') + '°';
+                if (qnhEl) qnhEl.textContent = formatAltimeter(m.altim);
                 
                 const cat = m.fltCat || 'VFR';
                 if (catEl) {
@@ -216,8 +295,8 @@ document.addEventListener('DOMContentLoaded', function() {
     async function fetchMetarHistoryForStation(station, containerId) {
         try {
             const cacheBuster = Date.now();
-            const res = await fetch('https://corsproxy.io/?' + encodeURIComponent('https://aviationweather.gov/api/data/metar?ids=' + station + '&format=json&hours=6&cache=' + cacheBuster));
-            const data = await res.json();
+            const url = buildMetarUrl({ ids: station, hours: 6, cache: cacheBuster });
+            const data = await fetchAviationWeatherJson(url);
             
             const container = document.getElementById(containerId);
             if (!container) return;
@@ -229,7 +308,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 data.forEach(m => {
                     const raw = m.rawOb || 'No data';
                     const time = m.reportTime ? new Date(m.reportTime).toUTCString().slice(0, -7) : '--';
-                    const wind = (m.wdir || 'VAR') + '° @ ' + (m.wspd || '--') + 'kt' + (m.wgst ? ' G' + m.wgst + 'kt' : '');
+                    const wind = (m.wdir ?? 'VAR') + '° @ ' + (m.wspd ?? '--') + 'kt' + (m.wgst ? ' G' + m.wgst + 'kt' : '');
                     const cat = m.fltCat || 'VFR';
                     
                     const item = document.createElement('div');
@@ -242,8 +321,8 @@ document.addEventListener('DOMContentLoaded', function() {
                         '<div class="history-raw">' + raw + '</div>' +
                         '<div class="history-details">' +
                             '<span>Wind: ' + wind + '</span>' +
-                            '<span>Vis: ' + (m.vis || '--') + ' SM</span>' +
-                            '<span>Temp: ' + (m.temp || '--') + '°C</span>' +
+                            '<span>Vis: ' + formatVisibility(m) + ' SM</span>' +
+                            '<span>Temp: ' + (m.temp ?? '--') + '°C</span>' +
                         '</div>';
                     container.appendChild(item);
                 });
@@ -298,8 +377,8 @@ document.addEventListener('DOMContentLoaded', function() {
         try {
             // Add cache-busting parameter and hours parameter to get latest
             const cacheBuster = Date.now();
-            const res = await fetch('https://corsproxy.io/?' + encodeURIComponent('https://aviationweather.gov/api/data/metar?ids=' + currentStation + '&format=json&cache=' + cacheBuster));
-            const data = await res.json();
+            const url = buildMetarUrl({ ids: currentStation, hours: 6, cache: cacheBuster });
+            const data = await fetchAviationWeatherJson(url);
             
             if (data && data.length > 0) {
                 // Sort by time to get the most recent
@@ -315,36 +394,36 @@ document.addEventListener('DOMContentLoaded', function() {
                     lastMetarTime = currentReportTime;
                     
                     // Update Dashboard (main page)
-                    document.getElementById('metarTime').textContent = m.reportTime ? new Date(m.reportTime).toUTCString().slice(0, -7) : '--';
-                    document.getElementById('metarText').textContent = raw;
-                    document.getElementById('metarInput').value = raw;
+                    safeText('metarTime', m.reportTime ? new Date(m.reportTime).toUTCString().slice(0, -7) : '--');
+                    safeText('metarText', raw);
+                    safeValue('metarInput', raw);
                     
-                    const wind = (m.wdir || 'VAR') + '° @ ' + (m.wspd || '--') + 'kt' + (m.wgst ? ' G' + m.wgst + 'kt' : '');
-                    document.getElementById('metarWind').textContent = wind;
-                    document.getElementById('metarVisibility').textContent = (m.vis || '--') + ' SM';
+                    const wind = (m.wdir ?? 'VAR') + '° @ ' + (m.wspd ?? '--') + 'kt' + (m.wgst ? ' G' + m.wgst + 'kt' : '');
+                    safeText('metarWind', wind);
+                    safeText('metarVisibility', formatVisibility(m) + ' SM');
                     
                     let clouds = '--';
                     if (m.clouds && m.clouds.length > 0) {
                         clouds = m.clouds.map(c => (c.cover || 'CLR') + (c.base ? c.base + 'kft' : '')).join(' ');
                     }
-                    document.getElementById('metarClouds').textContent = clouds;
-                    document.getElementById('metarTemp').textContent = (m.temp || '--') + '°C / ' + (m.dwpt || '--') + '°C';
-                    document.getElementById('metarAltimeter').textContent = m.altim ? m.altim.toFixed(2) + ' inHg' : '--';
+                    safeText('metarClouds', clouds);
+                    safeText('metarTemp', (m.temp ?? '--') + '°C / ' + (m.dwpt ?? '--') + '°C');
+                    safeText('metarAltimeter', formatAltimeter(m.altim));
                     
                     // Update Detail view (METAR tab)
-                    document.getElementById('detailMetarRaw').textContent = raw;
-                    document.getElementById('decStation').textContent = m.stationId || currentStation;
-                    document.getElementById('decTime').textContent = m.reportTime ? new Date(m.reportTime).toUTCString().slice(0, -7) : '--';
-                    document.getElementById('decWind').textContent = wind;
-                    document.getElementById('decVisibility').textContent = (m.vis || '--') + ' SM';
-                    document.getElementById('decClouds').textContent = clouds;
-                    document.getElementById('decTemp').textContent = (m.temp || '--') + '°C';
-                    document.getElementById('decDewp').textContent = (m.dwpt || '--') + '°C';
-                    document.getElementById('decAltim').textContent = m.altim ? m.altim.toFixed(2) + ' inHg' : '--';
+                    safeText('detailMetarRaw', raw);
+                    safeText('decStation', m.stationId || currentStation);
+                    safeText('decTime', m.reportTime ? new Date(m.reportTime).toUTCString().slice(0, -7) : '--');
+                    safeText('decWind', wind);
+                    safeText('decVisibility', formatVisibility(m) + ' SM');
+                    safeText('decClouds', clouds);
+                    safeText('decTemp', (m.temp ?? '--') + '°C');
+                    safeText('decDewp', (m.dwpt ?? '--') + '°C');
+                    safeText('decAltim', formatAltimeter(m.altim));
                     
                     const cat = m.fltCat || 'VFR';
-                    document.getElementById('metarFltCat').textContent = cat;
-                    document.getElementById('metarFltCat').className = 'badge ' + cat.toLowerCase();
+                    safeText('metarFltCat', cat);
+                    safeClass('metarFltCat', 'badge ' + cat.toLowerCase());
                     
                     if (!isFirstLoad && isNewData) {
                         showToast('New METAR received!');
@@ -439,7 +518,6 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Auto-update every 30 seconds
     setInterval(checkForUpdates, 30 * 1000);
-    setInterval(fetchAllMetars, 60 * 1000);
 
     // Refresh buttons
     document.getElementById('refreshMetar').addEventListener('click', function() {
@@ -501,9 +579,11 @@ document.addEventListener('DOMContentLoaded', function() {
     
     dataBody.addEventListener('click', function(e) {
         if (e.target.classList.contains('delete-btn')) {
-            e.target.closest('tr').remove();
-            updateDataSummary();
-            saveDataToStorage();
+            if (confirm('Delete this row?')) {
+                e.target.closest('tr').remove();
+                updateDataSummary();
+                saveDataToStorage();
+            }
         }
     });
     
@@ -726,4 +806,341 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Load saved satellite data
     loadSatelliteData();
+    
+    // Trend Tab - Temperature Chart
+    const locationCoords = {
+        london: { lat: 51.5085, lon: -0.1257, name: 'London' },
+        paris: { lat: 48.8566, lon: 2.3522, name: 'Paris' }
+    };
+    
+    let trendData = null;
+
+    function getLocalDateISO(timeZone) {
+        try {
+            const parts = new Intl.DateTimeFormat('en-CA', {
+                timeZone: timeZone,
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+            }).formatToParts(new Date());
+            const map = {};
+            parts.forEach(part => {
+                if (part.type !== 'literal') map[part.type] = part.value;
+            });
+            return map.year + '-' + map.month + '-' + map.day;
+        } catch {
+            return new Date().toISOString().slice(0, 10);
+        }
+    }
+
+    function buildTrendApiUrl(coords, timeZone) {
+        const safeTimezone = timeZone || 'auto';
+        const today = getLocalDateISO(safeTimezone);
+        const url = new URL('https://api.open-meteo.com/v1/forecast');
+        url.search = new URLSearchParams({
+            latitude: coords.lat,
+            longitude: coords.lon,
+            hourly: 'temperature_2m',
+            temperature_unit: 'celsius',
+            timezone: safeTimezone,
+            start_date: today,
+            end_date: today
+        }).toString();
+        return url.toString();
+    }
+
+    function getCurrentHourIndex(times, timeZone) {
+        if (!times || times.length === 0) return 0;
+        const now = new Date();
+        const localTimeString = now.toLocaleString('en-US', { timeZone: timeZone });
+        const localTime = new Date(localTimeString);
+        const currentHour = localTime.getHours();
+        const hours = times.map(t => parseInt(t.slice(11, 13), 10));
+        let index = hours.indexOf(currentHour);
+        if (index === -1) index = Math.min(currentHour, times.length - 1);
+        return index;
+    }
+    
+    async function fetchTrendData() {
+        const coords = locationCoords[currentLocation];
+        if (!coords) {
+            console.error('No coordinates found for location:', currentLocation);
+            showToast('Invalid location configuration');
+            return;
+        }
+        
+        document.getElementById('trendUpdated').textContent = 'Loading...';
+        
+        const apiUrl = buildTrendApiUrl(coords, currentTimezone);
+        
+        try {
+            let data;
+            try {
+                const directRes = await fetch(apiUrl, { cache: 'no-store' });
+                if (!directRes.ok) throw new Error('Direct fetch failed');
+                data = await directRes.json();
+                console.log('Trend data received (direct):', data);
+            } catch (directError) {
+                console.log('Direct fetch failed, trying proxy:', directError);
+                const proxyUrl = CORS_PROXY + encodeURIComponent(apiUrl);
+                const proxyRes = await fetch(proxyUrl, { cache: 'no-store' });
+                if (!proxyRes.ok) throw new Error(`Proxy fetch failed: ${proxyRes.status}`);
+                data = await proxyRes.json();
+                console.log('Trend data received (proxy):', data);
+            }
+            
+            if (!data.hourly || !data.hourly.temperature_2m || data.hourly.temperature_2m.length === 0) {
+                throw new Error('Invalid API response structure');
+            }
+            
+            trendData = {
+                hourly: {
+                    time: data.hourly.time,
+                    temperature_2m: data.hourly.temperature_2m
+                },
+                timezone: data.timezone || currentTimezone
+            };
+            
+            const tabContent = document.getElementById('tab-trend');
+            if (tabContent && tabContent.classList.contains('active')) {
+                updateTrendDisplay();
+            }
+        } catch (e) {
+            console.error('Failed to fetch trend data:', e);
+            document.getElementById('trendUpdated').textContent = 'Error';
+            const grid = document.getElementById('trendHourlyGrid');
+            if (grid) grid.innerHTML = '<div class="trend-hourly-item">No data</div>';
+            const tableBody = document.getElementById('trendHourlyTableBody');
+            if (tableBody) tableBody.innerHTML = '<tr><td colspan="2">No data</td></tr>';
+            showToast('Failed to fetch trend data');
+        }
+    }
+    
+    function updateTrendDisplay() {
+        if (!trendData || !trendData.hourly) {
+            document.getElementById('trendMin').textContent = '--°C';
+            document.getElementById('trendMax').textContent = '--°C';
+            document.getElementById('trendCurrent').textContent = '--°C';
+            document.getElementById('trendUpdated').textContent = 'Loading...';
+            document.getElementById('trendHourlyGrid').innerHTML = '<div class="trend-hourly-item">Loading...</div>';
+            const tableBody = document.getElementById('trendHourlyTableBody');
+            if (tableBody) {
+                tableBody.innerHTML = '<tr><td colspan="2">Loading...</td></tr>';
+            }
+            return;
+        }
+        
+        const coords = locationCoords[currentLocation];
+        document.getElementById('trendLocationName').textContent = coords.name;
+        
+        const temps = trendData.hourly.temperature_2m;
+        const times = trendData.hourly.time;
+        const length = Math.min(temps.length, times ? times.length : temps.length);
+        const safeTemps = temps.slice(0, length);
+        const safeTimes = times ? times.slice(0, length) : null;
+        
+        if (!safeTemps || safeTemps.length === 0) {
+            console.error('No temperature data available');
+            return;
+        }
+        
+        const minTemp = Math.min(...safeTemps);
+        const maxTemp = Math.max(...safeTemps);
+        
+        const now = new Date();
+        const trendTimezone = trendData.timezone || currentTimezone;
+        const localTimeString = now.toLocaleString('en-US', { timeZone: trendTimezone });
+        const localTime = new Date(localTimeString);
+        const currentHour = localTime.getHours();
+        const currentIndex = getCurrentHourIndex(safeTimes, trendTimezone);
+        const currentTemp = safeTemps[currentIndex] !== undefined ? safeTemps[currentIndex] : safeTemps[0];
+        
+        document.getElementById('trendMin').textContent = minTemp.toFixed(1) + '°C';
+        document.getElementById('trendMax').textContent = maxTemp.toFixed(1) + '°C';
+        document.getElementById('trendCurrent').textContent = currentTemp.toFixed(1) + '°C';
+        document.getElementById('trendUpdated').textContent = now.toLocaleTimeString().slice(0, 5);
+        
+        drawTrendChart(safeTemps, safeTimes, currentIndex);
+        updateHourlyGrid(safeTemps, safeTimes, currentIndex);
+    }
+    
+    function drawTrendChart(temps, times, currentHour) {
+        const canvas = document.getElementById('trendChart');
+        if (!canvas) {
+            console.error('Canvas element not found');
+            return;
+        }
+        
+        const tabContent = document.getElementById('tab-trend');
+        if (!tabContent || !tabContent.classList.contains('active')) {
+            return;
+        }
+        
+        const ctx = canvas.getContext('2d');
+        const wrapper = canvas.parentElement;
+        
+        if (!wrapper) {
+            console.error('Canvas wrapper not found');
+            return;
+        }
+        
+        const wrapperRect = wrapper.getBoundingClientRect();
+        
+        if (wrapperRect.width === 0 || wrapperRect.height === 0) {
+            console.log('Canvas wrapper has no size, retrying...');
+            setTimeout(() => drawTrendChart(temps, times, currentHour), 50);
+            return;
+        }
+        
+        canvas.style.width = wrapperRect.width + 'px';
+        canvas.style.height = wrapperRect.height + 'px';
+        
+        const dpr = window.devicePixelRatio || 1;
+        canvas.width = wrapperRect.width * dpr;
+        canvas.height = wrapperRect.height * dpr;
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
+        ctx.scale(dpr, dpr);
+        
+        const width = wrapperRect.width;
+        const height = wrapperRect.height;
+        const padding = { top: 30, right: 20, bottom: 40, left: 50 };
+        const chartWidth = width - padding.left - padding.right;
+        const chartHeight = height - padding.top - padding.bottom;
+        
+        ctx.clearRect(0, 0, width, height);
+        
+        const minTemp = Math.min(...temps) - 1;
+        const maxTemp = Math.max(...temps) + 1;
+        const tempRange = maxTemp - minTemp || 1;
+        
+        const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
+        const gridColor = isDark ? '#3d4450' : '#E1E8E6';
+        const textColor = isDark ? '#9aa5b1' : '#8FA3A3';
+        const lineColor = '#C99B3B';
+        const fillColor = isDark ? 'rgba(201,155,59,0.2)' : 'rgba(201,155,59,0.1)';
+        
+        ctx.strokeStyle = gridColor;
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= 5; i++) {
+            const y = padding.top + (chartHeight / 5) * i;
+            ctx.beginPath();
+            ctx.moveTo(padding.left, y);
+            ctx.lineTo(width - padding.right, y);
+            ctx.stroke();
+            
+            const temp = maxTemp - (tempRange / 5) * i;
+            ctx.fillStyle = textColor;
+            ctx.font = '11px sans-serif';
+            ctx.textAlign = 'right';
+            ctx.fillText(temp.toFixed(0) + '°', padding.left - 10, y + 4);
+        }
+        
+        ctx.fillStyle = textColor;
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        for (let i = 0; i < temps.length; i += 3) {
+            const x = padding.left + (chartWidth / Math.max(temps.length - 1, 1)) * i;
+            const label = times && times[i] ? times[i].slice(11, 16) : i.toString().padStart(2, '0') + ':00';
+            ctx.fillText(label, x, height - 10);
+        }
+        
+        ctx.beginPath();
+        ctx.moveTo(padding.left, padding.top + chartHeight);
+        temps.forEach((temp, i) => {
+            const x = padding.left + (chartWidth / Math.max(temps.length - 1, 1)) * i;
+            const y = padding.top + chartHeight - ((temp - minTemp) / tempRange) * chartHeight;
+            if (i === 0) ctx.lineTo(x, y);
+            else ctx.lineTo(x, y);
+        });
+        ctx.lineTo(padding.left + chartWidth, padding.top + chartHeight);
+        ctx.closePath();
+        ctx.fillStyle = fillColor;
+        ctx.fill();
+        
+        ctx.beginPath();
+        ctx.strokeStyle = lineColor;
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        temps.forEach((temp, i) => {
+            const x = padding.left + (chartWidth / Math.max(temps.length - 1, 1)) * i;
+            const y = padding.top + chartHeight - ((temp - minTemp) / tempRange) * chartHeight;
+            if (i === 0) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+        
+        const safeCurrentHour = Math.min(currentHour, temps.length - 1);
+        const currentX = padding.left + (chartWidth / Math.max(temps.length - 1, 1)) * safeCurrentHour;
+        const currentY = padding.top + chartHeight - ((temps[safeCurrentHour] - minTemp) / tempRange) * chartHeight;
+        
+        ctx.beginPath();
+        ctx.arc(currentX, currentY, 6, 0, Math.PI * 2);
+        ctx.fillStyle = lineColor;
+        ctx.fill();
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 2;
+        ctx.stroke();
+        
+        temps.forEach((temp, i) => {
+            if (i === safeCurrentHour) return;
+            const x = padding.left + (chartWidth / Math.max(temps.length - 1, 1)) * i;
+            const y = padding.top + chartHeight - ((temp - minTemp) / tempRange) * chartHeight;
+            ctx.beginPath();
+            ctx.arc(x, y, 3, 0, Math.PI * 2);
+            ctx.fillStyle = lineColor;
+            ctx.fill();
+        });
+    }
+    
+    function updateHourlyGrid(temps, times, currentHour) {
+        const grid = document.getElementById('trendHourlyGrid');
+        const tableBody = document.getElementById('trendHourlyTableBody');
+        grid.innerHTML = '';
+        if (tableBody) tableBody.innerHTML = '';
+        
+        const safeCurrentHour = Math.min(currentHour, temps.length - 1);
+        
+        temps.forEach((temp, i) => {
+            const item = document.createElement('div');
+            item.className = 'trend-hourly-item' + (i === safeCurrentHour ? ' current' : '');
+            const timeLabel = times && times[i] ? times[i].slice(11, 16) : i.toString().padStart(2, '0') + ':00';
+            item.innerHTML = 
+                '<div class="trend-hourly-time">' + timeLabel + '</div>' +
+                '<div class="trend-hourly-temp">' + temp.toFixed(1) + '°</div>';
+            grid.appendChild(item);
+
+            if (tableBody) {
+                const row = document.createElement('tr');
+                row.className = 'trend-hourly-row' + (i === safeCurrentHour ? ' current' : '');
+                row.innerHTML =
+                    '<td>' + timeLabel + '</td>' +
+                    '<td>' + temp.toFixed(1) + '°C</td>';
+                tableBody.appendChild(row);
+            }
+        });
+    }
+    
+    document.getElementById('refreshTrend').addEventListener('click', function() {
+        this.textContent = '...';
+        fetchTrendData().then(() => {
+            this.textContent = '↻';
+        });
+    });
+    
+    window.trendFetch = fetchTrendData;
+    
+    // Handle window resize to redraw chart
+    let resizeTimeout;
+    window.addEventListener('resize', function() {
+        clearTimeout(resizeTimeout);
+        resizeTimeout = setTimeout(function() {
+            if (trendData && document.getElementById('tab-trend').classList.contains('active')) {
+                updateTrendDisplay();
+            }
+        }, 250);
+    });
+    
+    fetchTrendData();
+    setInterval(fetchTrendData, 10 * 60 * 1000);
 });
