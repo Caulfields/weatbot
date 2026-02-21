@@ -50,6 +50,8 @@ document.addEventListener('DOMContentLoaded', function() {
     let lastMetarTime = null;
     let lastTafTime = null;
     let isFirstLoad = true;
+    let dailyMaxTemp = null;
+    let dailyMaxTempDate = null;
 
     // Location Clock
     function updateTime() {
@@ -59,9 +61,23 @@ document.addEventListener('DOMContentLoaded', function() {
             String(localTime.getMinutes()).padStart(2, '0') + ':' +
             String(localTime.getSeconds()).padStart(2, '0');
         document.getElementById('londonTime').textContent = timeStr;
+        
+        const currentDate = localTime.toDateString();
+        if (dailyMaxTempDate !== currentDate) {
+            dailyMaxTemp = null;
+            dailyMaxTempDate = currentDate;
+        }
     }
     updateTime();
     setInterval(updateTime, 1000);
+    
+    function updateMaxTempDisplay() {
+        const el = document.getElementById('maxTemp');
+        if (el) {
+            el.textContent = dailyMaxTemp !== null ? 'Max: ' + dailyMaxTemp + '°C' : 'Max: --°C';
+        }
+    }
+    updateMaxTempDisplay();
     
     // Location Switching
     document.querySelectorAll('.location-btn').forEach(btn => {
@@ -75,6 +91,10 @@ document.addEventListener('DOMContentLoaded', function() {
             currentLocation = loc;
             currentStation = locations[loc].station;
             currentTimezone = locations[loc].timezone;
+            
+            dailyMaxTemp = null;
+            dailyMaxTempDate = null;
+            updateMaxTempDisplay();
             
             // Update clock label
             document.querySelector('.clock-label').textContent = locations[loc].name;
@@ -974,6 +994,14 @@ document.addEventListener('DOMContentLoaded', function() {
                     // Use parsed values from raw METAR (more accurate than API)
                     const temp = parsedMetar.temp ?? m.temp ?? m.temperature ?? null;
                     const dwpt = parsedMetar.dewpt ?? m.dwpt ?? m.dewpt ?? m.dewpoint ?? null;
+                    
+                    if (temp !== null && temp !== undefined) {
+                        if (dailyMaxTemp === null || temp > dailyMaxTemp) {
+                            dailyMaxTemp = temp;
+                            updateMaxTempDisplay();
+                        }
+                    }
+                    
                     safeText('metarTemp', formatTemperature(temp));
                     safeText('metarDewpoint', formatDewpoint(dwpt, temp));
                     safeText('metarPressure', formatPressure(m.altim));
