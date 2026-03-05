@@ -1,6 +1,0 @@
-{
-  "name": "weatbot-test",
-  "scripts": {
-    "start": "npx serve -p 8000"
-  }
-}
